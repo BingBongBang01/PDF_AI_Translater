@@ -1,0 +1,170 @@
+Translate the provided PDF text segments according to the system instructions.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TRANSLATION CONFIGURATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SOURCE LANGUAGE:
+{{source_language}}
+
+TARGET LANGUAGE:
+{{target_language}}
+
+DOCUMENT TYPE:
+{{document_type}}
+
+TRANSLATION STYLE:
+{{translation_style}}
+
+TERMINOLOGY POLICY:
+{{terminology_policy}}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PDF LAYOUT REQUIREMENT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The translated text will replace the source text inside the original PDF.
+
+Preserve the original document structure as closely as possible.
+
+IMPORTANT:
+
+* Preserve meaningful line breaks.
+* Preserve paragraph boundaries.
+* Preserve headings.
+* Preserve lists.
+* Preserve table rows.
+* Preserve chapter and section boundaries.
+* Preserve one table-of-contents entry per line.
+* Do not join independent items together.
+* Do not arbitrarily split continuous prose.
+* Distinguish meaningful structural line breaks from artificial PDF text wrapping.
+* Use previous and surrounding context to make this distinction.
+* Prefer concise natural translation when multiple translations are equally accurate.
+* Preserve all page numbers and numerical values.
+
+If one input segment contains multiple independent structural elements, preserve the separation between those elements inside translated_text.
+
+Example:
+
+SOURCE:
+
+Chapter 11 Perspectives on IPv4 Subnetting 264
+Chapter 12 Analyzing Classful IPv4 Networks 288
+
+TRANSLATED_TEXT:
+
+챕터 11 IPv4 서브넷팅에 대한 관점 264
+챕터 12 클래스 기반 IPv4 네트워크 분석 288
+
+Do NOT combine these entries into one line.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+GLOSSARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The following glossary defines mandatory terminology mappings.
+
+If empty, use established professional terminology.
+
+--- GLOSSARY START ---
+
+{{glossary_data}}
+
+--- GLOSSARY END ---
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DOCUMENT INFORMATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+DOCUMENT TITLE:
+
+{{document_title}}
+
+DOCUMENT DOMAIN:
+
+{{document_domain}}
+
+ADDITIONAL DOCUMENT INSTRUCTIONS:
+
+{{document_instructions}}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PREVIOUS CONTEXT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Use this content only for:
+
+* contextual interpretation;
+* terminology consistency;
+* document structure interpretation;
+* determining whether line breaks represent structural boundaries or artificial wrapping.
+
+Do not translate it.
+
+Do not output it.
+
+--- PREVIOUS CONTEXT START ---
+
+{{prev_context}}
+
+--- PREVIOUS CONTEXT END ---
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SOURCE SEGMENTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Translate only the following source segments.
+
+Preserve every segment ID exactly.
+
+Preserve segment order.
+
+Return exactly one translation object for every source segment.
+
+Within each segment:
+
+* preserve meaningful structural line breaks;
+* preserve separate table-of-contents entries;
+* preserve separate headings and list items;
+* reconstruct only artificial PDF word-wrapping naturally.
+
+--- SOURCE SEGMENTS START ---
+
+{{text_segments}}
+
+--- SOURCE SEGMENTS END ---
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+OUTPUT REQUIREMENTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Return valid JSON only.
+
+Required schema:
+
+{
+"translations": [
+{
+"segment_id": "EXACT_ORIGINAL_SEGMENT_ID",
+"translated_text": "TRANSLATED_TEXT"
+}
+]
+}
+
+Before returning the result, silently verify:
+
+* all input segments are present;
+* no segments are missing;
+* no segments were added;
+* segment IDs are unchanged;
+* segment order is unchanged;
+* numbers are preserved;
+* technical content is preserved;
+* independent document elements remain separated;
+* table-of-contents entries remain on separate lines;
+* continuous paragraphs do not contain arbitrary line breaks;
+* meaningful line breaks are encoded as \n in translated_text;
+* output is valid JSON.
+
+Return only the final JSON object.

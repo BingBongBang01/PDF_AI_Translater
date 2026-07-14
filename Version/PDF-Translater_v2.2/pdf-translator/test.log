@@ -1,0 +1,15 @@
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "C:\Users\USER\AppData\Local\Programs\Python\Python312\Scripts\lemonade-server-dev.exe\__main__.py", line 7, in <module>
+  File "C:\Users\USER\AppData\Local\Programs\Python\Python312\Lib\site-packages\lemonade_server\cli.py", line 752, in main
+    _show_deprecation_notice()
+  File "C:\Users\USER\AppData\Local\Programs\Python\Python312\Lib\site-packages\lemonade_server\cli.py", line 641, in _show_deprecation_notice
+    print("  \u2022 Windows and Linux: Download the installer from")
+UnicodeEncodeError: 'cp949' codec can't encode character '\u2022' in position 2: illegal multibyte sequence
+================================================================================
+DEPRECATION NOTICE
+================================================================================
+The Python-based 'lemonade-server-dev' command is deprecated.
+Please use the C++ Lemonade Server instead:
+

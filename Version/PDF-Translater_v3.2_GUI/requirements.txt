@@ -1,0 +1,6 @@
+pymupdf
+pypdf
+anthropic
+google-genai
+openai
+pyinstaller

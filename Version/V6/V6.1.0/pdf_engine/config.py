@@ -13,7 +13,7 @@ from pathlib import Path
 # 버전 표기는 이 상수 하나에서만 관리한다. gui.py는 이 값을 import해서 타이틀에 쓰고,
 # build_exe.bat은 이 값을 읽어 실행파일 이름을 결정한다 (버전 문자열이 여러 곳에 흩어져
 # 서로 어긋나는 사고 방지 - 예: v3.82로 하드코딩된 채 zip 이름만 v3.84로 배포됐던 문제).
-__version__ = "5.7"
+__version__ = "6.1.0"
 
 # ---------------------------------------------------------------------------
 # 로컬 AI 런타임 레지스트리 - Lemonade 외 다른 로컬 서버(Ollama, LM Studio 등)를
@@ -49,9 +49,40 @@ RUNTIME_REGISTRY: dict[str, dict] = {
         "supports_gpu": True,
         "api_prefix": "/v1",
         "health_path": "/v1/models",
-        # LM Studio는 보통 앱을 켜두거나 'lms server start'로 미리 띄워두는 걸 전제로 한다.
-        # CLI 자동 기동은 이 환경에서 검증되지 않았으니 실패해도 "수동으로 켜두라"고 안내한다.
         "serve_candidates": [("lms", ["server", "start"])],
+        "needs_ctx_load": False,
+        "needs_model_menu": False,
+    },
+    "jan": {
+        "label": "Jan.ai",
+        "default_port": 1337,
+        "supports_npu": False,
+        "supports_gpu": True,
+        "api_prefix": "/v1",
+        "health_path": "/v1/models",
+        "serve_candidates": [("jan", [])],
+        "needs_ctx_load": False,
+        "needs_model_menu": False,
+    },
+    "koboldcpp": {
+        "label": "KoboldCPP",
+        "default_port": 5001,
+        "supports_npu": False,
+        "supports_gpu": True,
+        "api_prefix": "/v1",
+        "health_path": "/v1/models",
+        "serve_candidates": [("koboldcpp", [])],
+        "needs_ctx_load": False,
+        "needs_model_menu": False,
+    },
+    "anythingllm": {
+        "label": "AnythingLLM",
+        "default_port": 3001,
+        "supports_npu": False,
+        "supports_gpu": True,
+        "api_prefix": "/v1",
+        "health_path": "/v1/models",
+        "serve_candidates": [("anythingllm", [])],
         "needs_ctx_load": False,
         "needs_model_menu": False,
     },

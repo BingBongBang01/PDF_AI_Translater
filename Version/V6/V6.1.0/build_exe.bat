@@ -1,4 +1,4 @@
-﻿@echo off
+@echo off
 setlocal EnableExtensions
 chcp 65001 >nul
 cd /d "%~dp0"
@@ -8,21 +8,31 @@ echo PDF Translater Windows EXE Builder (onefile)
 echo ==========================================
 echo.
 
-echo [1/7] Locate real Python 3.12
+echo [1/7] Locate real Python (version agnostic)
 set "PYTHON_EXE="
-for /f "usebackq delims=" %%I in (`py -3.12 -c "import sys; print(sys.executable)" 2^>nul`) do set "PYTHON_EXE=%%I"
 
-if not defined PYTHON_EXE (
-    echo [ERROR] py launcher could not find Python 3.12.
-    echo Installed Python versions:
-    py -0p
-    pause
-    exit /b 1
+for /f "delims=" %%I in ('py -3 -c "import sys; print(sys.executable)" 2^>nul') do (
+    echo %%I | findstr /i "WindowsApps" >nul
+    if errorlevel 1 set "PYTHON_EXE=%%I"
 )
 
-if not exist "%PYTHON_EXE%" (
-    echo [ERROR] Python executable does not exist:
-    echo %PYTHON_EXE%
+if not defined PYTHON_EXE (
+    for /f "delims=" %%I in ('python -c "import sys; print(sys.executable)" 2^>nul') do (
+        echo %%I | findstr /i "WindowsApps" >nul
+        if errorlevel 1 set "PYTHON_EXE=%%I"
+    )
+)
+
+if not defined PYTHON_EXE (
+    for /d %%D in ("%LOCALAPPDATA%\Programs\Python\Python3*") do (
+        if exist "%%D\python.exe" set "PYTHON_EXE=%%D\python.exe"
+    )
+)
+
+if not defined PYTHON_EXE (
+    echo [ERROR] Could not locate a valid Python interpreter.
+    echo Installed Python versions:
+    py -0p
     pause
     exit /b 1
 )

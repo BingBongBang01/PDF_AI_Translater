@@ -1,0 +1,13 @@
+[
+  {
+    "id": "598c6333-6346-4850-8044-7e9d84452f9e",
+    "timestamp": "2026-07-27T17:29:33.929797",
+    "action": "Translate",
+    "details": {
+      "provider": "Google Gemini",
+      "status": "완료",
+      "duration": "00:00:00",
+      "file": "English -> Korean"
+    }
+  }
+]

@@ -2,6 +2,8 @@ from PySide6.QtWidgets import QWidget, QVBoxLayout, QFormLayout
 from ui.widgets.m3_components import MaterialDoubleSpinBox, MaterialGroupBox, MaterialSpinBox, MaterialScrollArea, MaterialCheckBox
 
 from ui.widgets.m3_combo_box import MaterialComboBox
+from utils.i18n import tr
+from utils.model_presets import DEFAULT_PROVIDER, DEFAULT_MODEL, PROVIDER_MODELS, get_preset
 
 
 class TranslationSettingsPanel(MaterialScrollArea):
@@ -14,25 +16,28 @@ class TranslationSettingsPanel(MaterialScrollArea):
         layout = QVBoxLayout(container)
         
         # Provider & Model
-        g1 = MaterialGroupBox("Model Configuration")
+        g1 = MaterialGroupBox(tr("Model Configuration"))
         fl1 = QFormLayout(g1)
         self.cb_provider = MaterialComboBox()
-        self.cb_provider.addItems(["Google Gemini", "OpenAI", "Anthropic", "Local Runtime"])
+        self.cb_provider.addItems(list(PROVIDER_MODELS.keys()))
         self.cb_model = MaterialComboBox()
         self.cb_provider.currentTextChanged.connect(self.update_model_list)
-        self.update_model_list("Google Gemini")
+        self.cb_model.currentTextChanged.connect(self.apply_model_preset)
+        self.cb_provider.setCurrentText(DEFAULT_PROVIDER)
+        self.update_model_list(DEFAULT_PROVIDER)
+        self.cb_model.setCurrentText(DEFAULT_MODEL)
         self.cb_src = MaterialComboBox()
         self.cb_src.addItems(["Auto", "English", "Japanese"])
         self.cb_tgt = MaterialComboBox()
         self.cb_tgt.addItems(["Korean", "English"])
         
-        fl1.addRow("Provider:", self.cb_provider)
-        fl1.addRow("Model:", self.cb_model)
-        fl1.addRow("Source Lang:", self.cb_src)
-        fl1.addRow("Target Lang:", self.cb_tgt)
-        
+        fl1.addRow(tr("Provider:"), self.cb_provider)
+        fl1.addRow(tr("Model:"), self.cb_model)
+        fl1.addRow(tr("Source Lang:"), self.cb_src)
+        fl1.addRow(tr("Target Lang:"), self.cb_tgt)
+
         # Parameters
-        g2 = MaterialGroupBox("Parameters")
+        g2 = MaterialGroupBox(tr("Parameters"))
         fl2 = QFormLayout(g2)
         self.sp_temp = MaterialDoubleSpinBox()
         self.sp_temp.setRange(0, 2)
@@ -48,23 +53,23 @@ class TranslationSettingsPanel(MaterialScrollArea):
         self.sp_ctx.setRange(1000, 128000)
         self.sp_ctx.setValue(8000)
         
-        fl2.addRow("Temperature:", self.sp_temp)
-        fl2.addRow("Max Tokens:", self.sp_tokens)
-        fl2.addRow("Chunk Size:", self.sp_chunk)
-        fl2.addRow("Context Size:", self.sp_ctx)
-        
+        fl2.addRow(tr("Temperature:"), self.sp_temp)
+        fl2.addRow(tr("Max Tokens:"), self.sp_tokens)
+        fl2.addRow(tr("Chunk Size:"), self.sp_chunk)
+        fl2.addRow(tr("Context Size:"), self.sp_ctx)
+
         # Execution
-        g3 = MaterialGroupBox("Execution")
+        g3 = MaterialGroupBox(tr("Execution"))
         fl3 = QFormLayout(g3)
         self.sp_retry = MaterialSpinBox()
         self.sp_retry.setRange(0, 10)
         self.sp_retry.setValue(3)
-        self.chk_streaming = MaterialCheckBox("Enable Streaming")
+        self.chk_streaming = MaterialCheckBox(tr("Enable Streaming"))
         self.chk_streaming.setChecked(True)
-        self.chk_tm = MaterialCheckBox("Use Translation Memory")
+        self.chk_tm = MaterialCheckBox(tr("Use Translation Memory"))
         self.chk_tm.setChecked(True)
-        
-        fl3.addRow("Retry Count:", self.sp_retry)
+
+        fl3.addRow(tr("Retry Count:"), self.sp_retry)
         fl3.addRow("", self.chk_streaming)
         fl3.addRow("", self.chk_tm)
         
@@ -77,11 +82,14 @@ class TranslationSettingsPanel(MaterialScrollArea):
 
     def update_model_list(self, provider: str):
         self.cb_model.clear()
-        if provider == "Google Gemini":
-            self.cb_model.addItems(["gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro"])
-        elif provider == "OpenAI":
-            self.cb_model.addItems(["gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"])
-        elif provider == "Anthropic":
-            self.cb_model.addItems(["claude-3-5-sonnet", "claude-3-opus", "claude-3-haiku"])
-        else:
-            self.cb_model.addItems(["llama-3-8b", "gemma-2-9b"])
+        self.cb_model.addItems(PROVIDER_MODELS.get(provider, PROVIDER_MODELS[DEFAULT_PROVIDER]))
+
+    def apply_model_preset(self, model_name: str):
+        if not model_name:
+            return
+        preset = get_preset(model_name)
+        self.sp_temp.setValue(preset["temperature"])
+        self.sp_tokens.setValue(preset["max_tokens"])
+        self.sp_chunk.setValue(preset["chunk_size"])
+        self.sp_ctx.setValue(preset["context_size"])
+        self.sp_retry.setValue(preset["retry"])

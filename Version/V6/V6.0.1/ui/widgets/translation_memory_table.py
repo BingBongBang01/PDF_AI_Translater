@@ -1,11 +1,12 @@
 from PySide6.QtWidgets import QTableWidgetItem, QHeaderView
 from ui.widgets.m3_components import MaterialTableWidget
+from utils.i18n import tr
 
 
 class TranslationMemoryTable(MaterialTableWidget):
     def __init__(self, parent=None):
         super().__init__(0, 5, parent)
-        self.setHorizontalHeaderLabels(["Similarity", "Source", "Target", "Date", "Provider"])
+        self.setHorizontalHeaderLabels([tr("Similarity"), tr("Source"), tr("Target"), tr("Date"), tr("Provider")])
         self.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.setSelectionBehavior(MaterialTableWidget.SelectRows)
         self.setEditTriggers(MaterialTableWidget.NoEditTriggers)

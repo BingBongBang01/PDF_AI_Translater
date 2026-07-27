@@ -15,6 +15,7 @@ from ui.widgets.task_queue_table import TaskQueueTable
 from ui.widgets.history_details_panel import HistoryDetailsPanel
 from ui.widgets.stats_dashboard import StatsDashboard
 from controllers.history_controller import HistoryController
+from utils.i18n import tr
 
 class HistoryPage(BasePage):
     def setup_ui(self):
@@ -31,13 +32,13 @@ class HistoryPage(BasePage):
         tb_layout.setContentsMargins(16, 8, 16, 8)
         
         self.search_box = MaterialTextField()
-        self.search_box.setPlaceholderText("Search history...")
+        self.search_box.setPlaceholderText(tr("Search history..."))
         self.search_box.setFixedWidth(300)
-        
-        self.btn_filter = MaterialButton("Filter")
-        self.btn_refresh = MaterialButton("Refresh")
-        self.btn_delete = MaterialButton("Delete Selected")
-        self.btn_export = MaterialButton("Export History")
+
+        self.btn_filter = MaterialButton(tr("Filter"))
+        self.btn_refresh = MaterialButton(tr("Refresh"))
+        self.btn_delete = MaterialButton(tr("Delete Selected"))
+        self.btn_export = MaterialButton(tr("Export History"))
         
         self.btn_delete.setStyleSheet("color: var(--md-sys-color-error);")
         
@@ -57,7 +58,7 @@ class HistoryPage(BasePage):
         
         self.filter_panel = HistoryFilterPanel()
 
-        headers = ["Time", "Project", "File", "Action", "Provider", "Model", "Duration", "Status"]
+        headers = [tr("Time"), tr("Project"), tr("File"), tr("Action"), tr("Provider"), tr("Model"), tr("Duration"), tr("Status")]
         self.table = TaskQueueTable(headers)
 
         self.details_panel = HistoryDetailsPanel()
@@ -75,8 +76,8 @@ class HistoryPage(BasePage):
         stats_layout = QHBoxLayout(self.stats_container)
         stats_layout.setContentsMargins(0, 0, 0, 0)
         
-        self.stats_volume = StatsDashboard("Volume Statistics", {"Total Projects": "3", "Total Files": "45", "Total Pages": "1,204", "Total Tokens": "2.4M"})
-        self.stats_exec = StatsDashboard("Execution Statistics", {"Total OCR Jobs": "32", "Total Translation Jobs": "18", "Average Duration": "42s", "Success Rate": "96.5%"})
+        self.stats_volume = StatsDashboard(tr("Volume Statistics"), {tr("Total Projects"): "3", tr("Total Files"): "45", tr("Total Pages"): "1,204", tr("Total Tokens"): "2.4M"})
+        self.stats_exec = StatsDashboard(tr("Execution Statistics"), {tr("Total OCR Jobs"): "32", tr("Total Translation Jobs"): "18", tr("Average Duration"): "42s", tr("Success Rate"): "96.5%"})
         
         stats_layout.addWidget(self.stats_volume)
         stats_layout.addWidget(self.stats_exec)
@@ -113,16 +114,16 @@ class HistoryPage(BasePage):
 
         total_files = len(self.records)
         self.stats_volume.update_stats({
-            "Total Projects": str(len({r.get("details", {}).get("project") for r in self.records if r.get("details", {}).get("project")})),
-            "Total Files": str(total_files),
-            "Total Pages": "-",
-            "Total Tokens": "-",
+            tr("Total Projects"): str(len({r.get("details", {}).get("project") for r in self.records if r.get("details", {}).get("project")})),
+            tr("Total Files"): str(total_files),
+            tr("Total Pages"): "-",
+            tr("Total Tokens"): "-",
         })
         self.stats_exec.update_stats({
-            "Total OCR Jobs": str(sum(1 for r in self.records if r.get("action") == "OCR")),
-            "Total Translation Jobs": str(sum(1 for r in self.records if r.get("action") == "Translate")),
-            "Average Duration": "-",
-            "Success Rate": "-",
+            tr("Total OCR Jobs"): str(sum(1 for r in self.records if r.get("action") == "OCR")),
+            tr("Total Translation Jobs"): str(sum(1 for r in self.records if r.get("action") == "Translate")),
+            tr("Average Duration"): "-",
+            tr("Success Rate"): "-",
         })
 
     def on_table_selection(self):
@@ -137,7 +138,7 @@ class HistoryPage(BasePage):
         if not items:
             return
         rows = sorted({item.row() for item in items}, reverse=True)
-        reply = QMessageBox.question(self, "Delete History", f"Delete {len(rows)} record(s)?")
+        reply = QMessageBox.question(self, tr("Delete History"), f"{tr('Delete')} {len(rows)} {tr('record(s)?')}")
         if reply != QMessageBox.Yes:
             return
         for row in rows:
@@ -146,7 +147,7 @@ class HistoryPage(BasePage):
         self.refresh()
 
     def on_export_history(self):
-        file_path, _ = QFileDialog.getSaveFileName(self, "Export History", "", "JSON Files (*.json)")
+        file_path, _ = QFileDialog.getSaveFileName(self, tr("Export History"), "", tr("JSON Files") + " (*.json)")
         if not file_path:
             return
         with open(file_path, "w", encoding="utf-8") as f:

@@ -31,6 +31,13 @@ class MaterialTextEdit(QTextEdit):
         super().__init__(parent)
         self.setProperty('m3_typography', 'body_large')
 
+class MirroredLogTextEdit(MaterialTextEdit):
+    """A MaterialTextEdit whose append() also mirrors the line into the app-wide log."""
+    def append(self, text):
+        super().append(text)
+        from utils.logger import app_logger
+        app_logger.raw(text)
+
 class MaterialSpinBox(QSpinBox):
     def __init__(self, parent=None):
         super().__init__(parent)

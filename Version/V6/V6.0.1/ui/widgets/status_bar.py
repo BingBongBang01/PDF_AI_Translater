@@ -1,5 +1,6 @@
 from PySide6.QtWidgets import QStatusBar
 from ui.widgets.m3_components import MaterialLabel
+from utils.i18n import tr
 
 
 class MainStatusBar(QStatusBar):
@@ -7,11 +8,11 @@ class MainStatusBar(QStatusBar):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("MainStatusBar")
-        
-        self.lbl_version = MaterialLabel("v6.0.0")
-        self.lbl_task = MaterialLabel("Ready")
-        self.lbl_gpu = MaterialLabel("GPU: Idle")
-        self.lbl_engine = MaterialLabel("Engine: Default")
+
+        self.lbl_version = MaterialLabel("v6.0.1")
+        self.lbl_task = MaterialLabel(tr("Ready"))
+        self.lbl_gpu = MaterialLabel(tr("GPU: Idle"))
+        self.lbl_engine = MaterialLabel(tr("Engine: Default"))
         
         for lbl in [self.lbl_version, self.lbl_task, self.lbl_gpu, self.lbl_engine]:
             lbl.setProperty('m3_typography', 'label_small')
@@ -25,4 +26,4 @@ class MainStatusBar(QStatusBar):
         self.lbl_task.setText(text)
         
     def set_gpu_status(self, status: str):
-        self.lbl_gpu.setText(f"GPU: {status}")
+        self.lbl_gpu.setText(tr("GPU: {status}").format(status=status))

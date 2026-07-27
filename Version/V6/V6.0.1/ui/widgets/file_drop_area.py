@@ -1,6 +1,7 @@
 from PySide6.QtWidgets import QVBoxLayout
 from PySide6.QtCore import Qt, Signal
 from ui.widgets.m3_components import MaterialLabel, MaterialFrame
+from utils.i18n import tr
 
 
 class FileDropArea(MaterialFrame):
@@ -22,7 +23,7 @@ class FileDropArea(MaterialFrame):
         """)
         
         self.layout = QVBoxLayout(self)
-        self.lbl_text = MaterialLabel("Drag & Drop PDF, Images, or Folders here")
+        self.lbl_text = MaterialLabel(tr("Drag & Drop PDF, Images, or Folders here"))
         self.lbl_text.setAlignment(Qt.AlignCenter)
         self.lbl_text.setStyleSheet("color: var(--md-sys-color-on-surface-variant); font-size: 16px; border: none;")
         self.layout.addWidget(self.lbl_text)
@@ -47,5 +48,5 @@ class FileDropArea(MaterialFrame):
         urls = event.mimeData().urls()
         files = [u.toLocalFile() for u in urls if u.isLocalFile()]
         if files:
-            self.lbl_text.setText(f"Dropped: {files[0]} {'(+' + str(len(files)-1) + ' more)' if len(files)>1 else ''}")
+            self.lbl_text.setText(f"{tr('Dropped')}: {files[0]} {'(+' + str(len(files)-1) + ' ' + tr('more') + ')' if len(files)>1 else ''}")
             self.files_dropped.emit(files)

@@ -40,6 +40,7 @@ class AppSettings:
     pdf_panel_sizes: List[int] = field(default_factory=lambda: [200, 600, 200])
     translation_panel_sizes: List[int] = field(default_factory=lambda: [300, 300, 300])
     translation_provider: str = "Google Gemini"
+    translation_model: str = "gemini-2.5-flash"
     translation_temperature: float = 0.3
     translation_top_p: float = 1.0
     translation_context_len: int = 4000
@@ -108,6 +109,7 @@ class SettingsManager:
                 "pdf_panel_sizes": self.settings.pdf_panel_sizes,
                 "translation_panel_sizes": self.settings.translation_panel_sizes,
                 "translation_provider": self.settings.translation_provider,
+                "translation_model": self.settings.translation_model,
                 "translation_temperature": self.settings.translation_temperature,
                 "translation_top_p": self.settings.translation_top_p,
                 "translation_context_len": self.settings.translation_context_len,
@@ -183,6 +185,7 @@ class SettingsManager:
             self.settings.pdf_panel_sizes = data.get("pdf_panel_sizes", self.settings.pdf_panel_sizes)
             self.settings.translation_panel_sizes = data.get("translation_panel_sizes", self.settings.translation_panel_sizes)
             self.settings.translation_provider = data.get("translation_provider", self.settings.translation_provider)
+            self.settings.translation_model = data.get("translation_model", self.settings.translation_model)
             self.settings.translation_temperature = data.get("translation_temperature", self.settings.translation_temperature)
             self.settings.translation_top_p = data.get("translation_top_p", self.settings.translation_top_p)
             self.settings.translation_context_len = data.get("translation_context_len", self.settings.translation_context_len)

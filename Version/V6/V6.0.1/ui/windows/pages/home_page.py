@@ -14,11 +14,12 @@ from ui.widgets.info_card import InfoCard
 from ui.widgets.recent_jobs_card import RecentJobsCard
 from ui.widgets.file_drop_area import FileDropArea
 from models.settings import SettingsManager
+from utils.i18n import tr
 
 try:
     from config.config import __version__ as APP_VERSION
 except ImportError:
-    APP_VERSION = "6.0.0"
+    APP_VERSION = "6.0.1"
 
 def get_dir_size(path: Path) -> str:
     total_size = 0
@@ -54,7 +55,7 @@ class HomePage(BasePage):
         lbl_title = MaterialLabel("PDF Translater")
         lbl_title.setProperty('m3_typography', 'display_small')
         
-        lbl_subtitle = MaterialLabel(f"Version {APP_VERSION}  |  Theme: {SettingsManager().settings.theme}")
+        lbl_subtitle = MaterialLabel(f"{tr('Version')} {APP_VERSION}  |  {tr('Theme')}: {SettingsManager().settings.theme}")
         lbl_subtitle.setProperty('m3_typography', 'title_medium')
         
         # Color mapping requires updating stylesheet dynamically via design_system if we want exact colors 
@@ -73,11 +74,11 @@ class HomePage(BasePage):
         # 2. Quick Actions
         actions_layout = QHBoxLayout()
         actions = [
-            ("Open PDF", "Load a new document", 1),
-            ("Recent Files", "View history", 5),
-            ("Start Translation", "Run active engine", 2),
-            ("OCR Image", "Extract text", 3),
-            ("Settings", "Configure app", 6)
+            (tr("Open PDF"), tr("Load a new document"), 1),
+            (tr("Recent Files"), tr("View history"), 5),
+            (tr("Start Translation"), tr("Run active engine"), 2),
+            (tr("OCR Image"), tr("Extract text"), 3),
+            (tr("Settings"), tr("Configure app"), 6)
         ]
         
         for title, desc, target_idx in actions:
@@ -93,7 +94,7 @@ class HomePage(BasePage):
         main_layout.addWidget(drop_area)
         
         # 4. Recent Files (Table)
-        recent_lbl = MaterialLabel("Recent Files")
+        recent_lbl = MaterialLabel(tr("Recent Files"))
         recent_lbl.setProperty('m3_typography', 'headline_medium')
         main_layout.addWidget(recent_lbl)
         
@@ -106,21 +107,21 @@ class HomePage(BasePage):
         
         # System Status
         system_stats = {
-            "OS": f"{platform.system()} {platform.release()}",
-            "Python": sys.version.split()[0],
-            "Theme": SettingsManager().settings.theme,
-            "Engine": SettingsManager().settings.runtime,
+            tr("OS"): f"{platform.system()} {platform.release()}",
+            tr("Python"): sys.version.split()[0],
+            tr("Theme"): SettingsManager().settings.theme,
+            tr("Engine"): SettingsManager().settings.runtime,
         }
-        status_card = InfoCard("System Status", system_stats)
+        status_card = InfoCard(tr("System Status"), system_stats)
         bottom_layout.addWidget(status_card)
-        
+
         # App Info
         config_dir = Path(os.environ.get("APPDATA") or Path.home()) / "PDFTranslaterGUI"
         app_stats = {
-            "Config Dir": str(config_dir),
-            "Cache Size": get_dir_size(config_dir),
+            tr("Config Dir"): str(config_dir),
+            tr("Cache Size"): get_dir_size(config_dir),
         }
-        app_card = InfoCard("Application Information", app_stats)
+        app_card = InfoCard(tr("Application Information"), app_stats)
         bottom_layout.addWidget(app_card)
         
         main_layout.addLayout(bottom_layout)

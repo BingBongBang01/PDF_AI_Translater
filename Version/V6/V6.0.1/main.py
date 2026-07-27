@@ -4,6 +4,7 @@ from ui.windows.main_window import MainWindow
 from ui.themes.theme_manager import ThemeManager
 from core.service_locator import ServiceLocator
 from core.cache_manager import CacheManager
+from utils.logger import install_terminal_log_bridge
 
 
 def bootstrap_services():
@@ -12,6 +13,7 @@ def bootstrap_services():
 
 
 def main():
+    install_terminal_log_bridge()
     bootstrap_services()
     app = QApplication(sys.argv)
 

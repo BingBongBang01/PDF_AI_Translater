@@ -3,6 +3,7 @@ from PySide6.QtCore import Signal
 from ui.widgets.m3_components import MaterialListWidget
 
 from ui.widgets.m3_text_field import MaterialTextField
+from utils.i18n import tr
 
 
 class PageSearch(QWidget):
@@ -16,7 +17,7 @@ class PageSearch(QWidget):
         self.search_fn = None  # Callable[[str], list[dict]] set by owning page
 
         self.search_box = MaterialTextField()
-        self.search_box.setPlaceholderText("Search in document...")
+        self.search_box.setPlaceholderText(tr("Search in document..."))
         self.search_box.returnPressed.connect(self.perform_search)
 
         self.results_list = MaterialListWidget()
@@ -42,7 +43,10 @@ class PageSearch(QWidget):
         for res in results:
             page = res.get("page", 0)
             count = len(res.get("rects", []))
-            item = QListWidgetItem(f"Found '{query}' on page {page + 1} ({count} match{'es' if count != 1 else ''})")
+            match_word = tr("match") if count == 1 else tr("matches")
+            item = QListWidgetItem(tr("Found '{query}' on page {page} ({count} {match_word})").format(
+                query=query, page=page + 1, count=count, match_word=match_word
+            ))
             item.setData(100, page)
             self.results_list.addItem(item)
 

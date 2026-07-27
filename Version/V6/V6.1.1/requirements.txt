@@ -1,0 +1,12 @@
+PyMuPDF>=1.24
+customtkinter>=5.2
+pypdf
+anthropic
+google-genai
+openai
+pyinstaller
+numpy<2.5
+opencv-python-headless
+Pillow
+darkdetect
+packaging

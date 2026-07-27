@@ -3,22 +3,23 @@ from ui.widgets.material_button import MaterialButton
 from ui.widgets.m3_text_field import MaterialTextField
 
 from ui.widgets.glossary_table import GlossaryTable
+from utils.i18n import tr
 
 class GlossaryManagerPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(8, 8, 8, 8)
-        
+
         toolbar = QHBoxLayout()
-        self.btn_add = MaterialButton("Add")
-        self.btn_edit = MaterialButton("Edit")
-        self.btn_delete = MaterialButton("Delete")
-        self.btn_import = MaterialButton("Import")
-        self.btn_export = MaterialButton("Export")
-        
+        self.btn_add = MaterialButton(tr("Add"))
+        self.btn_edit = MaterialButton(tr("Edit"))
+        self.btn_delete = MaterialButton(tr("Delete"))
+        self.btn_import = MaterialButton(tr("Import"))
+        self.btn_export = MaterialButton(tr("Export"))
+
         self.search_box = MaterialTextField()
-        self.search_box.setPlaceholderText("Search Glossary...")
+        self.search_box.setPlaceholderText(tr("Search Glossary..."))
         
         toolbar.addWidget(self.btn_add)
         toolbar.addWidget(self.btn_edit)

@@ -1,5 +1,6 @@
 from PySide6.QtWidgets import QWidget, QVBoxLayout
 from ui.widgets.m3_components import MaterialTabWidget, MaterialTextEdit
+from utils.i18n import tr
 
 
 class ExportPreviewPanel(QWidget):
@@ -30,10 +31,10 @@ class ExportPreviewPanel(QWidget):
         self.watermark_preview.setReadOnly(True)
         self.watermark_preview.setPlaceholderText("Mock Watermark rendering...")
         
-        self.tabs.addTab(self.doc_preview, "Document")
-        self.tabs.addTab(self.meta_preview, "Metadata")
-        self.tabs.addTab(self.layout_preview, "Layout")
-        self.tabs.addTab(self.watermark_preview, "Watermark")
+        self.tabs.addTab(self.doc_preview, tr("Document"))
+        self.tabs.addTab(self.meta_preview, tr("Metadata"))
+        self.tabs.addTab(self.layout_preview, tr("Layout"))
+        self.tabs.addTab(self.watermark_preview, tr("Watermark"))
         
         self.layout.addWidget(self.tabs)
         

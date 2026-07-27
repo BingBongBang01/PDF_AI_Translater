@@ -2,6 +2,7 @@ from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QFormLayout
 from ui.widgets.m3_components import MaterialLabel, MaterialGroupBox
 
 from ui.widgets.material_button import MaterialButton
+from utils.i18n import tr
 
 
 class HistoryDetailsPanel(QWidget):
@@ -9,9 +10,9 @@ class HistoryDetailsPanel(QWidget):
         super().__init__(parent)
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(8, 8, 8, 8)
-        
+
         # Details Form
-        g_details = MaterialGroupBox("Job Details")
+        g_details = MaterialGroupBox(tr("Job Details"))
         self.form = QFormLayout(g_details)
         
         self.lbl_src = MaterialLabel("--")
@@ -29,41 +30,41 @@ class HistoryDetailsPanel(QWidget):
         self.lbl_err = MaterialLabel("--")
         self.lbl_err.setStyleSheet("color: var(--md-sys-color-error);")
         
-        self.form.addRow("Source File:", self.lbl_src)
-        self.form.addRow("Output File:", self.lbl_out)
-        self.form.addRow("Pages:", self.lbl_pages)
-        self.form.addRow("Chunks:", self.lbl_chunks)
-        self.form.addRow("Provider:", self.lbl_prov)
-        self.form.addRow("Model:", self.lbl_mod)
-        self.form.addRow("OCR Engine:", self.lbl_eng)
-        self.form.addRow("Export Format:", self.lbl_fmt)
-        self.form.addRow("Duration:", self.lbl_dur)
-        self.form.addRow("Tokens:", self.lbl_tok)
-        self.form.addRow("Estimated Cost:", self.lbl_cost)
-        self.form.addRow("Status:", self.lbl_stat)
-        self.form.addRow("Error Message:", self.lbl_err)
-        
+        self.form.addRow(tr("Source File:"), self.lbl_src)
+        self.form.addRow(tr("Output File:"), self.lbl_out)
+        self.form.addRow(tr("Pages:"), self.lbl_pages)
+        self.form.addRow(tr("Chunks:"), self.lbl_chunks)
+        self.form.addRow(tr("Provider:"), self.lbl_prov)
+        self.form.addRow(tr("Model:"), self.lbl_mod)
+        self.form.addRow(tr("OCR Engine:"), self.lbl_eng)
+        self.form.addRow(tr("Export Format:"), self.lbl_fmt)
+        self.form.addRow(tr("Duration:"), self.lbl_dur)
+        self.form.addRow(tr("Tokens:"), self.lbl_tok)
+        self.form.addRow(tr("Estimated Cost:"), self.lbl_cost)
+        self.form.addRow(tr("Status:"), self.lbl_stat)
+        self.form.addRow(tr("Error Message:"), self.lbl_err)
+
         self.layout.addWidget(g_details)
-        
+
         # Actions
-        g_actions = MaterialGroupBox("Actions")
+        g_actions = MaterialGroupBox(tr("Actions"))
         v_actions = QVBoxLayout(g_actions)
-        
+
         h1 = QHBoxLayout()
-        self.btn_open_proj = MaterialButton("Open Project")
-        self.btn_open_fold = MaterialButton("Open Folder")
+        self.btn_open_proj = MaterialButton(tr("Open Project"))
+        self.btn_open_fold = MaterialButton(tr("Open Folder"))
         h1.addWidget(self.btn_open_proj)
         h1.addWidget(self.btn_open_fold)
-        
+
         h2 = QHBoxLayout()
-        self.btn_retry = MaterialButton("Retry")
-        self.btn_dup = MaterialButton("Duplicate")
+        self.btn_retry = MaterialButton(tr("Retry"))
+        self.btn_dup = MaterialButton(tr("Duplicate"))
         h2.addWidget(self.btn_retry)
         h2.addWidget(self.btn_dup)
-        
+
         h3 = QHBoxLayout()
-        self.btn_export_log = MaterialButton("Export Log")
-        self.btn_delete = MaterialButton("Delete")
+        self.btn_export_log = MaterialButton(tr("Export Log"))
+        self.btn_delete = MaterialButton(tr("Delete"))
         self.btn_delete.setStyleSheet("background-color: var(--md-sys-color-error); color: var(--md-sys-color-on-error);")
         h3.addWidget(self.btn_export_log)
         h3.addWidget(self.btn_delete)
@@ -104,7 +105,7 @@ class HistoryDetailsPanel(QWidget):
             self.lbl_dur.setText("45s")
             self.lbl_tok.setText("45,200")
             self.lbl_cost.setText("$0.45")
-            self.lbl_stat.setText("Completed")
+            self.lbl_stat.setText(tr("Completed"))
             self.lbl_err.setText("None")
         else:
             self.lbl_src.setText("contract_v2.pdf")
@@ -118,5 +119,5 @@ class HistoryDetailsPanel(QWidget):
             self.lbl_dur.setText("1m 20s")
             self.lbl_tok.setText("N/A")
             self.lbl_cost.setText("N/A")
-            self.lbl_stat.setText("Completed")
+            self.lbl_stat.setText(tr("Completed"))
             self.lbl_err.setText("None")

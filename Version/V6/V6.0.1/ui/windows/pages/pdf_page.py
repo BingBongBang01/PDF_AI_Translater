@@ -19,6 +19,7 @@ from ui.widgets.pdf_properties_panel import PdfPropertiesPanel
 from workers.pdf_worker import ThumbnailWorker, MetadataWorker, PreviewWorker
 from models.settings import SettingsManager
 from controllers.pdf_controller import PDFController
+from utils.i18n import tr
 
 class PDFPage(BasePage):
     def setup_ui(self):
@@ -41,20 +42,20 @@ class PDFPage(BasePage):
         tb_layout = QHBoxLayout(toolbar)
         tb_layout.setContentsMargins(16, 8, 16, 8)
         
-        self.btn_open = MaterialButton("Open PDF")
-        self.btn_recent = MaterialButton("Recent")
-        self.btn_reload = MaterialButton("Reload")
-        
-        self.btn_zoom_in = MaterialButton("Zoom In")
-        self.btn_zoom_out = MaterialButton("Zoom Out")
-        self.btn_fit = MaterialButton("Fit Width")
-        self.btn_fit_page = MaterialButton("Fit Page")
-        
-        self.btn_prev = MaterialButton("Prev Page")
-        self.btn_next = MaterialButton("Next Page")
-        
+        self.btn_open = MaterialButton(tr("Open PDF"))
+        self.btn_recent = MaterialButton(tr("Recent"))
+        self.btn_reload = MaterialButton(tr("Reload"))
+
+        self.btn_zoom_in = MaterialButton(tr("Zoom In"))
+        self.btn_zoom_out = MaterialButton(tr("Zoom Out"))
+        self.btn_fit = MaterialButton(tr("Fit Width"))
+        self.btn_fit_page = MaterialButton(tr("Fit Page"))
+
+        self.btn_prev = MaterialButton(tr("Prev Page"))
+        self.btn_next = MaterialButton(tr("Next Page"))
+
         search_box = MaterialTextField()
-        search_box.setPlaceholderText("Search Toolbar...")
+        search_box.setPlaceholderText(tr("Search Toolbar..."))
         search_box.setFixedWidth(200)
         search_box.returnPressed.connect(lambda: self.left_tabs.setCurrentWidget(self.page_search) or self.page_search.set_query_and_search(search_box.text()))
 
@@ -79,16 +80,16 @@ class PDFPage(BasePage):
         
         self.thumbnail_list = ThumbnailList()
         self.thumbnail_list.page_selected.connect(self.on_page_selected)
-        self.left_tabs.addTab(self.thumbnail_list, "Thumbnails")
-        
+        self.left_tabs.addTab(self.thumbnail_list, tr("Thumbnails"))
+
         self.bookmark_tree = BookmarkTree()
         self.bookmark_tree.page_selected.connect(self.on_page_selected)
-        self.left_tabs.addTab(self.bookmark_tree, "Bookmarks")
-        
+        self.left_tabs.addTab(self.bookmark_tree, tr("Bookmarks"))
+
         self.page_search = PageSearch()
         self.page_search.search_fn = self.controller.search
         self.page_search.page_selected.connect(self.on_page_selected)
-        self.left_tabs.addTab(self.page_search, "Search")
+        self.left_tabs.addTab(self.page_search, tr("Search"))
         
         # Center Panel
         center_panel = QWidget()
@@ -108,7 +109,7 @@ class PDFPage(BasePage):
         # Right Panel
         self.properties_panel = PdfPropertiesPanel()
         self.properties_panel.btn_ocr.clicked.connect(lambda: self.window().change_page(3))
-        self.properties_panel.btn_translate.clicked.connect(lambda: self.window().change_page(2))
+        self.properties_panel.btn_translate.clicked.connect(self.on_send_to_translate)
         self.properties_panel.btn_export.clicked.connect(lambda: self.window().change_page(4))
         
         self.splitter.addWidget(self.left_tabs)
@@ -124,10 +125,10 @@ class PDFPage(BasePage):
         bb_layout = QHBoxLayout(bottom_bar)
         bb_layout.setContentsMargins(16, 4, 16, 4)
         
-        self.lbl_status = MaterialLabel("Ready")
+        self.lbl_status = MaterialLabel(tr("Ready"))
         self.lbl_cursor = MaterialLabel("X: 0, Y: 0")
-        self.lbl_zoom = MaterialLabel("Zoom: 100%")
-        self.lbl_page_info = MaterialLabel("Page: 0 / 0")
+        self.lbl_zoom = MaterialLabel(tr("Zoom") + ": 100%")
+        self.lbl_page_info = MaterialLabel(tr("Page") + ": 0 / 0")
         
         bb_layout.addWidget(self.lbl_status)
         bb_layout.addStretch()
@@ -152,7 +153,7 @@ class PDFPage(BasePage):
                 self.load_pdf(file_path)
 
     def on_open_clicked(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "Open PDF", "", "PDF Files (*.pdf)")
+        file_path, _ = QFileDialog.getOpenFileName(self, tr("Open PDF"), "", tr("PDF Files") + " (*.pdf)")
         if file_path:
             self.load_pdf(file_path)
 
@@ -160,7 +161,7 @@ class PDFPage(BasePage):
         recents = SettingsManager().settings.recent_files
         menu = MaterialMenu(self)
         if not recents:
-            action = QAction("(No recent files)", self)
+            action = QAction(tr("(No recent files)"), self)
             action.setEnabled(False)
             menu.addAction(action)
         else:
@@ -185,7 +186,7 @@ class PDFPage(BasePage):
         self.current_pdf = file_path
         self.current_page_index = 0
         self.total_pages = 0
-        self.lbl_status.setText(f"Loading {os.path.basename(file_path)}...")
+        self.lbl_status.setText(f"{tr('Loading')} {os.path.basename(file_path)}...")
 
         if self.thumbnail_worker:
             self.thumbnail_worker.cancel()
@@ -193,7 +194,7 @@ class PDFPage(BasePage):
         try:
             self.controller.open(file_path)
         except Exception as e:
-            self.lbl_status.setText(f"Error: {e}")
+            self.lbl_status.setText(f"{tr('Error')}: {e}")
             return
 
         self._remember_recent(file_path)
@@ -206,8 +207,8 @@ class PDFPage(BasePage):
         self.properties_panel.set_file_info(meta)
 
         self.total_pages = meta.get("Page Count", 0)
-        self.lbl_page_info.setText(f"Page: 1 / {self.total_pages}")
-        self.lbl_status.setText("Ready")
+        self.lbl_page_info.setText(f"{tr('Page')}: 1 / {self.total_pages}")
+        self.lbl_status.setText(tr("Ready"))
 
         self.thumbnail_list.init_pages(self.total_pages)
 
@@ -230,7 +231,7 @@ class PDFPage(BasePage):
     def on_page_selected(self, page_index):
         if not self.current_pdf: return
         self.current_page_index = page_index
-        self.lbl_page_info.setText(f"Page: {self.current_page_index + 1} / {self.total_pages}")
+        self.lbl_page_info.setText(f"{tr('Page')}: {self.current_page_index + 1} / {self.total_pages}")
         
         item = self.thumbnail_list.item(page_index)
         if item:
@@ -251,8 +252,16 @@ class PDFPage(BasePage):
     def on_preview_ready(self, page_index, image):
         self.viewer.set_image(image)
         
+    def on_send_to_translate(self):
+        if not self.current_pdf:
+            return
+        main_win = self.window()
+        translate_page = main_win.pages[2]
+        translate_page.load_pdf(self.current_pdf, page_index=self.current_page_index)
+        main_win.change_page(2)
+
     def on_zoom_changed(self, zoom):
-        self.lbl_zoom.setText(f"Zoom: {int(zoom * 100)}%")
+        self.lbl_zoom.setText(f"{tr('Zoom')}: {int(zoom * 100)}%")
         
     def on_cursor_moved(self, x, y):
         self.lbl_cursor.setText(f"X: {x}, Y: {y}")

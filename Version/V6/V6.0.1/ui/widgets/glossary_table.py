@@ -1,11 +1,12 @@
 from PySide6.QtWidgets import QTableWidgetItem, QHeaderView
 from ui.widgets.m3_components import MaterialTableWidget
+from utils.i18n import tr
 
 
 class GlossaryTable(MaterialTableWidget):
     def __init__(self, parent=None):
         super().__init__(0, 4, parent)
-        self.setHorizontalHeaderLabels(["Original", "Translation", "Notes", "Priority"])
+        self.setHorizontalHeaderLabels([tr("Original"), tr("Translation"), tr("Notes"), tr("Priority")])
         self.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.setSelectionBehavior(MaterialTableWidget.SelectRows)
         self.setEditTriggers(MaterialTableWidget.NoEditTriggers)
@@ -13,10 +14,10 @@ class GlossaryTable(MaterialTableWidget):
 
     def load_mock_data(self):
         mock_data = [
-            ("AI", "인공지능", "Use full term", "High"),
-            ("Machine Learning", "기계 학습", "Standard term", "High"),
-            ("Deep Learning", "딥러닝", "Preferred term", "Medium"),
-            ("Model", "모델", "Context-dependent", "Low")
+            ("AI", "인공지능", tr("Use full term"), tr("High")),
+            ("Machine Learning", "기계 학습", tr("Standard term"), tr("High")),
+            ("Deep Learning", "딥러닝", tr("Preferred term"), tr("Medium")),
+            ("Model", "모델", tr("Context-dependent"), tr("Low"))
         ]
         self.setRowCount(len(mock_data))
         for row, data in enumerate(mock_data):

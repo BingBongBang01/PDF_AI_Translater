@@ -1,5 +1,6 @@
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QFormLayout
 from ui.widgets.m3_components import MaterialLabel, MaterialProgressBar, MaterialGroupBox
+from utils.i18n import tr
 
 
 class StatsDashboard(QWidget):
@@ -28,7 +29,7 @@ class StatsDashboard(QWidget):
         if has_progress:
             self.progress_bar = MaterialProgressBar()
             self.progress_bar.setValue(0)
-            self.form.addRow("Progress:", self.progress_bar)
+            self.form.addRow(tr("Progress:"), self.progress_bar)
             
         self.layout.addStretch()
         

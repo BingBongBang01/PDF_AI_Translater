@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QVBoxLayout, QButtonGroup, QApplication
+from PySide6.QtWidgets import QVBoxLayout, QButtonGroup, QApplication, QSizePolicy
 from PySide6.QtCore import Signal, Qt
 from ui.widgets.m3_components import MaterialFrame
 from ui.widgets.material_button import MaterialButton
@@ -10,7 +10,10 @@ class NavigationRail(MaterialFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("NavigationRail")
-        self.setFixedWidth(80)
+        self.setMinimumWidth(88)
+        self.setMaximumWidth(260)
+        self.resize(110, self.height())
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
         self.setStyleSheet("") # Clear static CSS
         self._apply_m3_style()
 

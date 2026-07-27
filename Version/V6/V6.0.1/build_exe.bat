@@ -16,7 +16,7 @@ if not defined PYTHON_EXE (
     exit /b 1
 )
 
-set "APP_VERSION=6.0.0"
+set "APP_VERSION=6.0.1"
 set "APP_NAME=PDF-Translater-v%APP_VERSION%"
 
 echo [1/4] Install pip packages

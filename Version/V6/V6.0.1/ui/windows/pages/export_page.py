@@ -14,6 +14,7 @@ from ui.widgets.export_preview_panel import ExportPreviewPanel
 from ui.widgets.export_settings_panel import ExportSettingsPanel
 from ui.widgets.export_queue_panel import ExportQueuePanel
 from controllers.export_controller import ExportController
+from utils.i18n import tr
 
 class ExportPage(BasePage):
     def setup_ui(self):
@@ -31,12 +32,12 @@ class ExportPage(BasePage):
         tb_layout = QHBoxLayout(toolbar)
         tb_layout.setContentsMargins(16, 8, 16, 8)
         
-        self.btn_export = MaterialButton("Export")
+        self.btn_export = MaterialButton(tr("Export"))
         self.btn_export.setStyleSheet("background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); font-weight: bold;")
-        self.btn_preview = MaterialButton("Preview")
-        self.btn_save_preset = MaterialButton("Save Preset")
-        self.btn_load_preset = MaterialButton("Load Preset")
-        self.btn_reset = MaterialButton("Reset")
+        self.btn_preview = MaterialButton(tr("Preview"))
+        self.btn_save_preset = MaterialButton(tr("Save Preset"))
+        self.btn_load_preset = MaterialButton(tr("Load Preset"))
+        self.btn_reset = MaterialButton(tr("Reset"))
         
         for btn in [self.btn_export, self.btn_preview, self.btn_save_preset, self.btn_load_preset, self.btn_reset]:
             tb_layout.addWidget(btn)
@@ -78,7 +79,7 @@ class ExportPage(BasePage):
             self.preview_panel.load_mock_preview(format_name)
 
     def on_browse_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, "Select Output Folder")
+        folder = QFileDialog.getExistingDirectory(self, tr("Select Output Folder"))
         if folder:
             self.settings_panel.le_dest.setText(folder)
 
@@ -88,7 +89,7 @@ class ExportPage(BasePage):
             return
         target_label = items[0].text()
 
-        source_path, _ = QFileDialog.getOpenFileName(self, "Select Source File to Export", "", "All Files (*.*)")
+        source_path, _ = QFileDialog.getOpenFileName(self, tr("Select Source File to Export"), "", tr("All Files") + " (*.*)")
         if not source_path:
             return
 
@@ -98,35 +99,35 @@ class ExportPage(BasePage):
             self.settings_panel.le_dest.setText(destination_folder)
 
         options = {
-            "overwrite": self.settings_panel.cb_overwrite.currentText() == "Overwrite",
+            "overwrite": self.settings_panel.cb_overwrite.currentText() == tr("Overwrite"),
             "compress": self.settings_panel.chk_comp.isChecked(),
             "include_metadata": True,
         }
 
         task = self.controller.export_file(source_path, target_label, destination_folder, options)
 
-        self._jobs.append({"name": task.document_id, "format": target_label.split("(")[0].strip(), "status": "In Progress", "eta": "-"})
+        self._jobs.append({"name": task.document_id, "format": target_label.split("(")[0].strip(), "status": tr("In Progress"), "eta": "-"})
         self._refresh_queue()
 
     def on_task_finished(self, document_id, success, message):
         for job in self._jobs:
-            if job["name"] == document_id and job["status"] == "In Progress":
-                job["status"] = "Completed" if success else "Failed"
+            if job["name"] == document_id and job["status"] == tr("In Progress"):
+                job["status"] = tr("Completed") if success else tr("Failed")
                 job["message"] = message
                 break
         self._refresh_queue()
 
     def _refresh_queue(self):
         rows = [
-            (j["name"], j["format"], "100%" if j["status"] != "In Progress" else "...", j["status"], j.get("eta", "-"))
+            (j["name"], j["format"], "100%" if j["status"] != tr("In Progress") else "...", j["status"], j.get("eta", "-"))
             for j in self._jobs
         ]
         self.queue_panel.table.load_data(rows)
-        completed = sum(1 for j in self._jobs if j["status"] == "Completed")
+        completed = sum(1 for j in self._jobs if j["status"] == tr("Completed"))
         self.queue_panel.stats.update_stats({
-            "Files": str(len(self._jobs)),
-            "Pages": "-",
-            "Estimated Size": "-",
-            "Export Time": "-",
-            "Compression Ratio": "-",
+            tr("Files"): str(len(self._jobs)),
+            tr("Pages"): "-",
+            tr("Estimated Size"): "-",
+            tr("Export Time"): "-",
+            tr("Compression Ratio"): "-",
         }, progress_val=int(completed / len(self._jobs) * 100) if self._jobs else 0)

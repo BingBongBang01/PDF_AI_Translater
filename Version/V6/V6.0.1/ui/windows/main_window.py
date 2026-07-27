@@ -1,11 +1,10 @@
-from PySide6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QStackedWidget
+from PySide6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QStackedWidget, QSplitter
 from PySide6.QtCore import Qt, QByteArray
 import base64
 from models.settings import SettingsManager
 
 from ui.widgets.navigation_rail import NavigationRail
 from ui.widgets.status_bar import MainStatusBar
-from ui.widgets.log_dock import LogDock
 
 from ui.windows.pages.home_page import HomePage
 from ui.windows.pages.pdf_page import PDFPage
@@ -16,11 +15,13 @@ from ui.windows.pages.history_page import HistoryPage
 from ui.windows.pages.settings_page import SettingsPage
 from ui.windows.pages.about_page import AboutPage
 from utils.i18n import tr
+from utils.logger import app_logger
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("PDF Translater v6.0.0")
+        self.setWindowTitle("PDF Translater v6.0.1")
+        app_logger.info("PDF Translater v6.0.1 started")
         self.resize(1200, 800)
         self.setMinimumSize(850, 650)
         
@@ -30,14 +31,25 @@ class MainWindow(QMainWindow):
         self.main_layout = QHBoxLayout(self.central_widget)
         self.main_layout.setContentsMargins(0, 0, 0, 0)
         self.main_layout.setSpacing(0)
-        
+
+        # Main splitter so the navigation rail can be resized by dragging its edge
+        self.main_splitter = QSplitter(Qt.Horizontal)
+        self.main_splitter.setHandleWidth(4)
+        self.main_layout.addWidget(self.main_splitter)
+
         # Navigation Rail
         self.nav_rail = NavigationRail()
-        self.main_layout.addWidget(self.nav_rail)
-        
+        self.main_splitter.addWidget(self.nav_rail)
+
         # Stacked Pages
         self.stacked_widget = QStackedWidget()
-        self.main_layout.addWidget(self.stacked_widget, 1)
+        self.main_splitter.addWidget(self.stacked_widget)
+
+        self.main_splitter.setStretchFactor(0, 0)
+        self.main_splitter.setStretchFactor(1, 1)
+        self.main_splitter.setCollapsible(0, False)
+        self.main_splitter.setCollapsible(1, False)
+        self.main_splitter.setSizes([110, 1090])
         
         # Setup Pages
         self.pages = [
@@ -72,11 +84,7 @@ class MainWindow(QMainWindow):
         # Status Bar
         self.status_bar = MainStatusBar()
         self.setStatusBar(self.status_bar)
-        
-        # Bottom Log Dock
-        self.log_dock = LogDock(tr("Logs"), self)
-        self.addDockWidget(Qt.BottomDockWidgetArea, self.log_dock)
-        
+
         self.restore_window_state()
         
     def restore_window_state(self):

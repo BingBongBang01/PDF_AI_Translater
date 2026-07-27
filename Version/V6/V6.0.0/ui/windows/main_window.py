@@ -2,10 +2,10 @@ from PySide6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QS
 from PySide6.QtCore import Qt, QByteArray
 import base64
 from models.settings import SettingsManager
+from core.i18n import tr
 
 from ui.widgets.navigation_rail import NavigationRail
 from ui.widgets.status_bar import MainStatusBar
-from ui.widgets.log_dock import LogDock
 
 from ui.windows.pages.home_page import HomePage
 from ui.windows.pages.pdf_page import PDFPage
@@ -51,14 +51,14 @@ class MainWindow(QMainWindow):
         ]
         
         destinations = [
-            ("Home", "Dashboard"),
-            ("PDF", "PDF Management"),
-            ("Translate", "Translation"),
-            ("OCR", "OCR settings"),
-            ("Export", "Export outputs"),
-            ("History", "History"),
-            ("Settings", "Settings"),
-            ("About", "About")
+            (tr("Home"), tr("Dashboard")),
+            (tr("PDF"), tr("PDF Management")),
+            (tr("Translate"), tr("Translation")),
+            (tr("OCR"), tr("OCR settings")),
+            (tr("Export"), tr("Export outputs")),
+            (tr("History"), tr("History")),
+            (tr("Settings"), tr("Settings")),
+            (tr("About"), tr("About"))
         ]
         
         for idx, (icon, tooltip) in enumerate(destinations):
@@ -67,13 +67,12 @@ class MainWindow(QMainWindow):
             
         self.nav_rail.page_changed.connect(self.change_page)
         
+        # Connect HomePage navigation
+        self.pages[0].navigate_requested.connect(self.change_page_from_home)
+        
         # Status Bar
         self.status_bar = MainStatusBar()
         self.setStatusBar(self.status_bar)
-        
-        # Bottom Log Dock
-        self.log_dock = LogDock("Logs", self)
-        self.addDockWidget(Qt.BottomDockWidgetArea, self.log_dock)
         
         self.restore_window_state()
         
@@ -90,6 +89,12 @@ class MainWindow(QMainWindow):
         mgr.settings.window_state = base64.b64encode(self.saveState().data()).decode('ascii')
         mgr.save()
         super().closeEvent(event)
+        
+    def change_page_from_home(self, idx: int):
+        btn = self.nav_rail.btn_group.button(idx)
+        if btn:
+            btn.setChecked(True)
+        self.change_page(idx)
         
     def change_page(self, idx: int):
         self.stacked_widget.setCurrentIndex(idx)

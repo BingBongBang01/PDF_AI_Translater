@@ -10,7 +10,7 @@ class NavigationRail(MaterialFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("NavigationRail")
-        self.setFixedWidth(80)
+        self.setMinimumWidth(120)
         self.setStyleSheet("") # Clear static CSS
         self._apply_m3_style()
 

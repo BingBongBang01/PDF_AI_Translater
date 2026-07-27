@@ -1,3 +1,4 @@
+from core.i18n import tr
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFileDialog
 )
@@ -38,14 +39,14 @@ class OCRPage(BasePage):
         tb_layout = QHBoxLayout(toolbar)
         tb_layout.setContentsMargins(16, 8, 16, 8)
         
-        self.btn_open_img = MaterialButton("Open Image")
-        self.btn_open_pdf = MaterialButton("Open PDF")
-        self.btn_start = MaterialButton("Start OCR")
+        self.btn_open_img = MaterialButton(tr("Open Image"))
+        self.btn_open_pdf = MaterialButton(tr("Open PDF"))
+        self.btn_start = MaterialButton(tr("Start OCR"))
         self.btn_start.setStyleSheet("background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); font-weight: bold;")
-        self.btn_pause = MaterialButton("Pause")
-        self.btn_resume = MaterialButton("Resume")
-        self.btn_stop = MaterialButton("Stop")
-        self.btn_save = MaterialButton("Save Result")
+        self.btn_pause = MaterialButton(tr("Pause"))
+        self.btn_resume = MaterialButton(tr("Resume"))
+        self.btn_stop = MaterialButton(tr("Stop"))
+        self.btn_save = MaterialButton(tr("Save Result"))
         
         self.btn_open_img.clicked.connect(self.on_open_image)
         self.btn_open_pdf.clicked.connect(self.on_open_pdf_for_ocr)
@@ -85,13 +86,13 @@ class OCRPage(BasePage):
         center_layout.setContentsMargins(0, 0, 0, 0)
         
         viewer_tools = QHBoxLayout()
-        self.btn_pan = MaterialButton("Pan")
+        self.btn_pan = MaterialButton(tr("Pan"))
         self.btn_pan.setCheckable(True)
-        self.btn_select = MaterialButton("Select Region")
+        self.btn_select = MaterialButton(tr("Select Region"))
         self.btn_select.setCheckable(True)
-        self.btn_zoom_in = MaterialButton("Zoom In")
-        self.btn_zoom_out = MaterialButton("Zoom Out")
-        self.btn_fit = MaterialButton("Fit")
+        self.btn_zoom_in = MaterialButton(tr("Zoom In"))
+        self.btn_zoom_out = MaterialButton(tr("Zoom Out"))
+        self.btn_fit = MaterialButton(tr("Fit"))
         
         viewer_tools.addWidget(self.btn_pan)
         viewer_tools.addWidget(self.btn_select)
@@ -158,8 +159,8 @@ class OCRPage(BasePage):
         sp_layout = QHBoxLayout(status_panel)
         sp_layout.setContentsMargins(16, 4, 16, 4)
         
-        self.lbl_coord = MaterialLabel("X: 0, Y: 0")
-        self.lbl_progress = MaterialLabel("Overall Progress: 0%")
+        self.lbl_coord = MaterialLabel(tr("X: 0, Y: 0"))
+        self.lbl_progress = MaterialLabel(tr("Overall Progress: 0%"))
         self.progress_bar = MaterialProgressBar()
         self.progress_bar.setFixedWidth(200)
         self.progress_bar.setValue(0)

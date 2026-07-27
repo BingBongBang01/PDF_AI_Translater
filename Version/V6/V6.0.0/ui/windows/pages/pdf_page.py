@@ -1,3 +1,4 @@
+from core.i18n import tr
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFileDialog
 )
@@ -41,17 +42,17 @@ class PDFPage(BasePage):
         tb_layout = QHBoxLayout(toolbar)
         tb_layout.setContentsMargins(16, 8, 16, 8)
         
-        self.btn_open = MaterialButton("Open PDF")
-        self.btn_recent = MaterialButton("Recent")
-        self.btn_reload = MaterialButton("Reload")
+        self.btn_open = MaterialButton(tr("Open PDF"))
+        self.btn_recent = MaterialButton(tr("Recent"))
+        self.btn_reload = MaterialButton(tr("Reload"))
         
-        self.btn_zoom_in = MaterialButton("Zoom In")
-        self.btn_zoom_out = MaterialButton("Zoom Out")
-        self.btn_fit = MaterialButton("Fit Width")
-        self.btn_fit_page = MaterialButton("Fit Page")
+        self.btn_zoom_in = MaterialButton(tr("Zoom In"))
+        self.btn_zoom_out = MaterialButton(tr("Zoom Out"))
+        self.btn_fit = MaterialButton(tr("Fit Width"))
+        self.btn_fit_page = MaterialButton(tr("Fit Page"))
         
-        self.btn_prev = MaterialButton("Prev Page")
-        self.btn_next = MaterialButton("Next Page")
+        self.btn_prev = MaterialButton(tr("Prev Page"))
+        self.btn_next = MaterialButton(tr("Next Page"))
         
         search_box = MaterialTextField()
         search_box.setPlaceholderText("Search Toolbar...")
@@ -119,10 +120,10 @@ class PDFPage(BasePage):
         bb_layout = QHBoxLayout(bottom_bar)
         bb_layout.setContentsMargins(16, 4, 16, 4)
         
-        self.lbl_status = MaterialLabel("Ready")
-        self.lbl_cursor = MaterialLabel("X: 0, Y: 0")
-        self.lbl_zoom = MaterialLabel("Zoom: 100%")
-        self.lbl_page_info = MaterialLabel("Page: 0 / 0")
+        self.lbl_status = MaterialLabel(tr("Ready"))
+        self.lbl_cursor = MaterialLabel(tr("X: 0, Y: 0"))
+        self.lbl_zoom = MaterialLabel(tr("Zoom: 100%"))
+        self.lbl_page_info = MaterialLabel(tr("Page: 0 / 0"))
         
         bb_layout.addWidget(self.lbl_status)
         bb_layout.addStretch()

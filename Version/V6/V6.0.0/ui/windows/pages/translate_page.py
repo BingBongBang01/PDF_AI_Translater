@@ -1,3 +1,4 @@
+from core.i18n import tr
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFileDialog
 )
@@ -35,13 +36,13 @@ class TranslatePage(BasePage):
         tb_layout = QHBoxLayout(toolbar)
         tb_layout.setContentsMargins(16, 8, 16, 8)
         
-        self.btn_translate = MaterialButton("Translate")
+        self.btn_translate = MaterialButton(tr("Translate"))
         self.btn_translate.setStyleSheet("background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); font-weight: bold;")
-        self.btn_pause = MaterialButton("Pause")
-        self.btn_resume = MaterialButton("Resume")
-        self.btn_stop = MaterialButton("Stop")
-        self.btn_save = MaterialButton("Save Session")
-        self.btn_load = MaterialButton("Load Session")
+        self.btn_pause = MaterialButton(tr("Pause"))
+        self.btn_resume = MaterialButton(tr("Resume"))
+        self.btn_stop = MaterialButton(tr("Stop"))
+        self.btn_save = MaterialButton(tr("Save Session"))
+        self.btn_load = MaterialButton(tr("Load Session"))
         
         self.btn_translate.clicked.connect(self.on_translate_clicked)
         self.btn_stop.clicked.connect(self.on_stop_clicked)
@@ -69,7 +70,7 @@ class TranslatePage(BasePage):
         left_layout.setContentsMargins(8, 8, 8, 8)
         
         nav_layout = QHBoxLayout()
-        nav_layout.addWidget(MaterialLabel("<b>Page:</b>"))
+        nav_layout.addWidget(MaterialLabel(tr("<b>Page:</b>")))
         self.page_spin = MaterialSpinBox()
         self.page_spin.setRange(1, 100)
         nav_layout.addWidget(self.page_spin)
@@ -79,7 +80,7 @@ class TranslatePage(BasePage):
         self.original_text = MaterialTextEdit()
         self.original_text.setReadOnly(True)
         self.original_text.setPlaceholderText("Original text...")
-        left_layout.addWidget(MaterialLabel("<b>Original Text</b>"))
+        left_layout.addWidget(MaterialLabel(tr("<b>Original Text</b>")))
         left_layout.addWidget(self.original_text)
         
         # Center Panel (Translation Result + Live Preview)
@@ -89,13 +90,13 @@ class TranslatePage(BasePage):
         
         self.translation_result = MaterialTextEdit()
         self.translation_result.setPlaceholderText("Translation result...")
-        center_layout.addWidget(MaterialLabel("<b>Translation Result</b>"))
+        center_layout.addWidget(MaterialLabel(tr("<b>Translation Result</b>")))
         center_layout.addWidget(self.translation_result)
         
         self.live_preview = MaterialTextEdit()
         self.live_preview.setReadOnly(True)
         self.live_preview.setPlaceholderText("Live Preview render...")
-        center_layout.addWidget(MaterialLabel("<b>Live Preview</b>"))
+        center_layout.addWidget(MaterialLabel(tr("<b>Live Preview</b>")))
         center_layout.addWidget(self.live_preview)
         
         # Right Panel (Tabs)

@@ -1,3 +1,4 @@
+from core.i18n import tr
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFileDialog
 )
@@ -31,12 +32,12 @@ class ExportPage(BasePage):
         tb_layout = QHBoxLayout(toolbar)
         tb_layout.setContentsMargins(16, 8, 16, 8)
         
-        self.btn_export = MaterialButton("Export")
+        self.btn_export = MaterialButton(tr("Export"))
         self.btn_export.setStyleSheet("background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); font-weight: bold;")
-        self.btn_preview = MaterialButton("Preview")
-        self.btn_save_preset = MaterialButton("Save Preset")
-        self.btn_load_preset = MaterialButton("Load Preset")
-        self.btn_reset = MaterialButton("Reset")
+        self.btn_preview = MaterialButton(tr("Preview"))
+        self.btn_save_preset = MaterialButton(tr("Save Preset"))
+        self.btn_load_preset = MaterialButton(tr("Load Preset"))
+        self.btn_reset = MaterialButton(tr("Reset"))
         
         for btn in [self.btn_export, self.btn_preview, self.btn_save_preset, self.btn_load_preset, self.btn_reset]:
             tb_layout.addWidget(btn)

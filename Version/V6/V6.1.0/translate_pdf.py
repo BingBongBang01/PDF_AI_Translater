@@ -1,5 +1,6 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# (셰뱅 라인 없음 - gui.py 참고: Windows py 런처가 셰뱅을 보고 PATH의 'python3'로
+# 재디스패치하면 스토어 스텁으로 빠질 위험이 있어 이 앱에서는 셰뱅을 쓰지 않는다.)
 """
 translate_pdf.py — AI(Anthropic Claude/Gemini/OpenAI/로컬 NPU-GPU) 기반 PDF 번역기.
 

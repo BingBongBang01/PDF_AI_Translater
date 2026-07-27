@@ -1,5 +1,10 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# 주의: 셰뱅 라인을 일부러 두지 않는다 - Windows의 py 런처는 첫 줄이
+# '#!/usr/bin/env python3'이면 그걸 보고 실행할 인터프리터를 다시 고르는데,
+# PATH의 'python3'가 마이크로소프트 스토어 스텁(WindowsApps\python3.exe)을
+# 가리키는 PC가 많아 'py gui.py'로 실행해도 실제로는 그 깨진 스텁으로 넘어가
+# 버려 패키지를 하나도 못 찾는 문제가 생긴다. 이 앱은 Windows 전용이라
+# 셰뱅이 필요 없으므로 완전히 제거하는 것이 가장 확실한 해결책이다.
 import tkinter as tk
 from tkinter import filedialog, messagebox
 import customtkinter as ctk

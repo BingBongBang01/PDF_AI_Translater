@@ -5,12 +5,76 @@
 # 가리키는 PC가 많아 'py gui.py'로 실행해도 실제로는 그 깨진 스텁으로 넘어가
 # 버려 패키지를 하나도 못 찾는 문제가 생긴다. 이 앱은 Windows 전용이라
 # 셰뱅이 필요 없으므로 완전히 제거하는 것이 가장 확실한 해결책이다.
+import sys, os, subprocess, re
+from pathlib import Path
+
+def _ensure_valid_environment():
+    if getattr(sys, "frozen", False):
+        return
+    try:
+        import customtkinter
+        import pymupdf
+        return
+    except ImportError:
+        pass
+
+    NOWIN = 0x08000000 if os.name == "nt" else 0
+    script_path = str(Path(__file__).resolve())
+    
+    if os.environ.get("_PDF_TRANSLATER_RELAUNCHED") == "1":
+        req_file = Path(__file__).parent / "requirements.txt"
+        if req_file.exists():
+            print(f"[알림] 현재 Python({sys.executable})에 필수 패키지를 설치합니다...")
+            subprocess.run([sys.executable, "-m", "pip", "install", "-r", str(req_file)])
+        return
+
+    candidates = []
+    if os.name == "nt":
+        try:
+            out = subprocess.check_output(["py", "-0p"], text=True, stderr=subprocess.DEVNULL, timeout=5, creationflags=NOWIN)
+            for line in out.splitlines():
+                m = re.search(r'(\S+python\.exe)\s*$', line.strip(), re.I)
+                if m:
+                    p = m.group(1)
+                    if "WindowsApps" not in p and Path(p).is_file() and p not in candidates:
+                        candidates.append(p)
+        except Exception:
+            pass
+
+        progs = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Python"
+        if progs.is_dir():
+            for exe in sorted(progs.glob("Python3*/python.exe"), reverse=True):
+                if str(exe) not in candidates and "WindowsApps" not in str(exe):
+                    candidates.append(str(exe))
+
+    for pyexe in candidates:
+        if pyexe.lower() == sys.executable.lower():
+            continue
+        try:
+            res = subprocess.run([pyexe, "-c", "import customtkinter, pymupdf"],
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                 timeout=10, creationflags=NOWIN)
+            if res.returncode == 0:
+                print(f"[자동 전환] 패키지가 설치된 Python으로 재실행합니다: {pyexe}")
+                os.environ["_PDF_TRANSLATER_RELAUNCHED"] = "1"
+                proc = subprocess.run([pyexe, script_path, *sys.argv[1:]])
+                sys.exit(proc.returncode)
+        except Exception:
+            continue
+
+    req_file = Path(__file__).parent / "requirements.txt"
+    if req_file.exists():
+        print(f"[알림] 필요한 패키지를 현재 Python({sys.executable})에 자동으로 설치합니다...")
+        os.environ["_PDF_TRANSLATER_RELAUNCHED"] = "1"
+        subprocess.run([sys.executable, "-m", "pip", "install", "-r", str(req_file)])
+
+_ensure_valid_environment()
+
 import tkinter as tk
 from tkinter import filedialog, messagebox
 import customtkinter as ctk
-import subprocess, threading, queue, tempfile, os, sys, json, re, urllib.request
+import threading, queue, tempfile, json, urllib.request
 import contextlib, io, traceback, importlib, shutil as _shutil, time, webbrowser, base64
-from pathlib import Path
 
 APP_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 ENGINE = APP_DIR / "translate_pdf.py"
@@ -59,9 +123,12 @@ APP_VERSION = _read_engine_version()
 # 미리 로드돼버려서(그게 없는 환경에서 GUI 자체가 안 뜰 위험), 필요한 정보만 가볍게 복제해둔다.
 # translate_pdf.py의 RUNTIME_REGISTRY를 바꾸면 이 사전도 함께 갱신해야 한다.
 LOCAL_RUNTIMES = {
-    "lemonade": {"label": "Lemonade", "supports_npu": True,  "supports_gpu": True},
-    "ollama":   {"label": "Ollama",   "supports_npu": False, "supports_gpu": True},
-    "lmstudio": {"label": "LM Studio","supports_npu": False, "supports_gpu": True},
+    "lemonade":    {"label": "Lemonade",    "supports_npu": True,  "supports_gpu": True},
+    "ollama":      {"label": "Ollama",      "supports_npu": False, "supports_gpu": True},
+    "lmstudio":    {"label": "LM Studio",   "supports_npu": False, "supports_gpu": True},
+    "jan":         {"label": "Jan.ai",      "supports_npu": False, "supports_gpu": True},
+    "koboldcpp":   {"label": "KoboldCPP",   "supports_npu": False, "supports_gpu": True},
+    "anythingllm": {"label": "AnythingLLM", "supports_npu": False, "supports_gpu": True},
 }
 
 # 사용자 설정(API 키 등) 저장 위치 - 실행파일 위치와 무관하게 항상 같은 곳을 사용
@@ -160,7 +227,14 @@ def preset(name):
 
 def card(parent, title=None):
     """카드형 CTkFrame 하나를 만들어 parent에 붙이고 반환한다 (Material 'surface' 톤)."""
-    outer = ctk.CTkFrame(parent, corner_radius=CARD_RADIUS)
+    try:
+        parent_bg = parent.cget("fg_color")
+        if parent_bg == "transparent" or not parent_bg:
+            parent_bg = ("gray95", "gray14")
+    except Exception:
+        parent_bg = ("gray95", "gray14")
+
+    outer = ctk.CTkFrame(parent, corner_radius=CARD_RADIUS, bg_color=parent_bg)
     outer.pack(fill="x", padx=0, pady=(0, 12))
     if title:
         ctk.CTkLabel(outer, text=title, font=ctk.CTkFont(size=15, weight="bold")).pack(
@@ -177,12 +251,16 @@ class OptionRow:
     def __init__(self, master, var, values, width=160, command=None):
         self.var = var
         self._external_command = command
-        self.widget = ctk.CTkOptionMenu(master, values=list(values), width=width,
+        val_list = list(values) if values else []
+        cur = var.get()
+        if cur and cur not in val_list:
+            val_list.insert(0, cur)
+        self.widget = ctk.CTkOptionMenu(master, values=val_list, width=width,
                                         command=self._on_select)
-        if var.get() in values:
-            self.widget.set(var.get())
-        elif values:
-            self.widget.set(values[0]); var.set(values[0])
+        if cur:
+            self.widget.set(cur)
+        elif val_list:
+            self.widget.set(val_list[0]); var.set(val_list[0])
 
     def _on_select(self, value):
         self.var.set(value)
@@ -190,12 +268,17 @@ class OptionRow:
             self._external_command(value)
 
     def set_values(self, values):
-        values = list(values) or [""]
-        self.widget.configure(values=values)
-        if self.var.get() not in values:
-            self.widget.set(values[0]); self.var.set(values[0])
-        else:
-            self.widget.set(self.var.get())
+        val_list = list(values) if values else []
+        cur = self.var.get()
+        if cur and cur not in val_list:
+            val_list.insert(0, cur)
+        if not val_list:
+            val_list = [""]
+        self.widget.configure(values=val_list)
+        if cur in val_list:
+            self.widget.set(cur)
+        elif val_list:
+            self.widget.set(val_list[0]); self.var.set(val_list[0])
 
     def grid(self, **kw): self.widget.grid(**kw)
     def pack(self, **kw): self.widget.pack(**kw)
@@ -231,6 +314,15 @@ class App(ctk.CTk):
     # ------------------------------------------------------------------
     # 화면 구성: 상단 바 + 탭(번역 / API·로컬AI / 설치 / 로그)
     # ------------------------------------------------------------------
+    @staticmethod
+    def _is_korean_locale() -> bool:
+        try:
+            import locale
+            loc = (locale.getlocale()[0] or os.environ.get("LANG", "") or "").lower()
+            return loc.startswith("ko") or "korean" in loc
+        except Exception:
+            return True
+
     def build(self):
         topbar = ctk.CTkFrame(self, fg_color="transparent")
         topbar.pack(fill="x", padx=16, pady=(12, 0))
@@ -240,6 +332,21 @@ class App(ctk.CTk):
         self.appearance_switch.pack(side="right")
         if ctk.get_appearance_mode() == "Dark":
             self.appearance_switch.select()
+
+        # 후원 (Sponsor / Support) 버튼 - Ko-fi 하이라이트 코랄 브랜드 색상 (#FF5E5B)
+        sponsor_text = "☕ 후원" if self._is_korean_locale() else "☕ Support"
+        self.sponsor_btn = ctk.CTkButton(
+            topbar,
+            text=sponsor_text,
+            width=85,
+            height=28,
+            fg_color="#FF5E5B",
+            hover_color="#D94845",
+            text_color="#FFFFFF",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            command=lambda: webbrowser.open("https://ko-fi.com/thk7410")
+        )
+        self.sponsor_btn.pack(side="right", padx=(0, 16))
 
         self.tabs = ctk.CTkTabview(self, corner_radius=CARD_RADIUS)
         self.tabs.pack(fill="both", expand=True, padx=16, pady=12)
@@ -258,7 +365,7 @@ class App(ctk.CTk):
 
     # -- 탭 1: 번역 --------------------------------------------------------
     def build_translate_tab(self, tab):
-        scroll = ctk.CTkScrollableFrame(tab, fg_color="transparent")
+        scroll = ctk.CTkScrollableFrame(tab, fg_color=("gray95", "gray14"))
         scroll.pack(fill="both", expand=True)
 
         f = card(scroll, "파일")
@@ -302,7 +409,7 @@ class App(ctk.CTk):
 
     # -- 탭 2: API / 로컬 AI ----------------------------------------------
     def build_ai_tab(self, tab):
-        scroll = ctk.CTkScrollableFrame(tab, fg_color="transparent")
+        scroll = ctk.CTkScrollableFrame(tab, fg_color=("gray95", "gray14"))
         scroll.pack(fill="both", expand=True)
 
         a = card(scroll, "API 키 — 체크된 API만 사용")
@@ -360,26 +467,167 @@ class App(ctk.CTk):
             self.adv_toggle_btn.configure(text="▸ 고급 설정 (배치 크기 / max_tokens)")
 
     # -- 탭 3: 설치 & 환경 --------------------------------------------------
+    # -- 탭 3: 설치 & 환경 --------------------------------------------------
     def build_setup_tab(self, tab):
-        scroll = ctk.CTkScrollableFrame(tab, fg_color="transparent")
+        scroll = ctk.CTkScrollableFrame(tab, fg_color=("gray95", "gray14"))
         scroll.pack(fill="both", expand=True)
 
-        s = card(scroll, "필수 설치")
-        row = ctk.CTkFrame(s, fg_color="transparent"); row.pack(fill="x")
-        ctk.CTkButton(row, text="Python 설치", command=self.install_python).pack(side="left")
-        ctk.CTkButton(row, text="Lemonade 설치", command=self.install_lemonade).pack(side="left", padx=8)
-        ctk.CTkButton(row, text="패키지(pip) 설치", command=self.install_packages).pack(side="left")
-        ctk.CTkButton(row, text="전체 자동 설치", fg_color=PRIMARY, hover_color=PRIMARY_HOVER,
-                     command=self.install_prerequisites).pack(side="left", padx=8)
-        ctk.CTkLabel(s, text="전체 자동 설치 = Python + Lemonade + 패키지를 한번에 순서대로 진행",
-                    text_color=("#666666","#999999")).pack(anchor="w", pady=(8,0))
+        # ------------------------------------------------------------------
+        # 카드 1: 📊 시스템 파이썬 & 필수 환경 진단
+        # ------------------------------------------------------------------
+        c1 = card(scroll, "📊 파이썬 & 필수 라이브러리 상태 대시보드")
 
-        m = card(scroll, "선택 설치")
-        row2 = ctk.CTkFrame(m, fg_color="transparent"); row2.pack(fill="x")
-        ctk.CTkButton(row2, text="manga-ocr 설치(선택)", command=self.install_manga_ocr).pack(side="left")
-        ctk.CTkLabel(m, text="일본어 만화 OCR 전용 - 설치 시 용량 ~1GB, 인식 정확도 크게 향상.\n"
-                            "미설치 시 Tesseract만 사용(자동)",
-                    text_color=("#666666","#999999"), justify="left").pack(anchor="w", pady=(8,0))
+        self.status_py_var = tk.StringVar(value="진단 중...")
+        self.status_pkg_var = tk.StringVar(value="진단 중...")
+
+        row_py = ctk.CTkFrame(c1, fg_color="transparent")
+        row_py.pack(fill="x", pady=2)
+        ctk.CTkLabel(row_py, text="• Python 환경:", width=150, anchor="w", font=ctk.CTkFont(weight="bold")).pack(side="left")
+        ctk.CTkLabel(row_py, textvariable=self.status_py_var, anchor="w").pack(side="left", fill="x", expand=True)
+
+        row_pkg = ctk.CTkFrame(c1, fg_color="transparent")
+        row_pkg.pack(fill="x", pady=2)
+        ctk.CTkLabel(row_pkg, text="• 필수 패키지(pip):", width=150, anchor="w", font=ctk.CTkFont(weight="bold")).pack(side="left")
+        ctk.CTkLabel(row_pkg, textvariable=self.status_pkg_var, anchor="w").pack(side="left", fill="x", expand=True)
+
+        btn_row1 = ctk.CTkFrame(c1, fg_color="transparent")
+        btn_row1.pack(fill="x", pady=(10, 0))
+        ctk.CTkButton(btn_row1, text="🔄 진단 새로고침", width=120, command=self.refresh_system_status).pack(side="left")
+        ctk.CTkButton(btn_row1, text="📦 패키지(pip) 설치/업데이트", command=self.install_packages).pack(side="left", padx=8)
+        ctk.CTkButton(btn_row1, text="⚡ 필수 요소 전체 자동 설치", fg_color=PRIMARY, hover_color=PRIMARY_HOVER,
+                      command=self.install_prerequisites).pack(side="left")
+
+        # ------------------------------------------------------------------
+        # 카드 2: 🤖 로컬 AI 런타임 현황 & 바로가기
+        # ------------------------------------------------------------------
+        c2 = card(scroll, "🤖 로컬 AI 런타임 연결 현황 & 다운로드 관리")
+
+        self.status_lemonade_var = tk.StringVar(value="진단 중...")
+        self.status_ollama_var = tk.StringVar(value="진단 중...")
+        self.status_lmstudio_var = tk.StringVar(value="진단 중...")
+        self.status_other_runtimes_var = tk.StringVar(value="진단 중...")
+
+        # Lemonade Row
+        r_lem = ctk.CTkFrame(c2, fg_color="transparent")
+        r_lem.pack(fill="x", pady=4)
+        ctk.CTkLabel(r_lem, text="• Lemonade Server (NPU/GPU):", width=220, anchor="w", font=ctk.CTkFont(weight="bold")).pack(side="left")
+        ctk.CTkLabel(r_lem, textvariable=self.status_lemonade_var, anchor="w").pack(side="left", fill="x", expand=True)
+        ctk.CTkButton(r_lem, text="🍋 Lemonade 자동 설치", width=140, command=self.install_lemonade).pack(side="right", padx=(6, 0))
+        ctk.CTkButton(r_lem, text="🌐 GitHub 릴리스", width=110, command=lambda: webbrowser.open("https://github.com/lemonade-sdk/lemonade/releases/latest")).pack(side="right")
+
+        # Ollama Row
+        r_oll = ctk.CTkFrame(c2, fg_color="transparent")
+        r_oll.pack(fill="x", pady=4)
+        ctk.CTkLabel(r_oll, text="• Ollama (GPU/CPU):", width=220, anchor="w", font=ctk.CTkFont(weight="bold")).pack(side="left")
+        ctk.CTkLabel(r_oll, textvariable=self.status_ollama_var, anchor="w").pack(side="left", fill="x", expand=True)
+        ctk.CTkButton(r_oll, text="🦙 Ollama 공식 사이트", width=140, command=lambda: webbrowser.open("https://ollama.com")).pack(side="right")
+
+        # LM Studio Row
+        r_lms = ctk.CTkFrame(c2, fg_color="transparent")
+        r_lms.pack(fill="x", pady=4)
+        ctk.CTkLabel(r_lms, text="• LM Studio (GPU/CPU):", width=220, anchor="w", font=ctk.CTkFont(weight="bold")).pack(side="left")
+        ctk.CTkLabel(r_lms, textvariable=self.status_lmstudio_var, anchor="w").pack(side="left", fill="x", expand=True)
+        ctk.CTkButton(r_lms, text="🧪 LM Studio 웹사이트", width=140, command=lambda: webbrowser.open("https://lmstudio.ai")).pack(side="right")
+
+        # Jan.ai / KoboldCPP Row
+        r_oth = ctk.CTkFrame(c2, fg_color="transparent")
+        r_oth.pack(fill="x", pady=4)
+        ctk.CTkLabel(r_oth, text="• Jan.ai / KoboldCPP 등:", width=220, anchor="w", font=ctk.CTkFont(weight="bold")).pack(side="left")
+        ctk.CTkLabel(r_oth, textvariable=self.status_other_runtimes_var, anchor="w").pack(side="left", fill="x", expand=True)
+        ctk.CTkButton(r_oth, text="🤖 Jan.ai 웹사이트", width=140, command=lambda: webbrowser.open("https://jan.ai")).pack(side="right")
+
+        # ------------------------------------------------------------------
+        # 카드 3: 🖼️ 선택 기능 (일본어 만화 전용 OCR)
+        # ------------------------------------------------------------------
+        c3 = card(scroll, "🖼️ 선택 기능 — manga-ocr (일본어 만화 OCR)")
+
+        self.status_manga_var = tk.StringVar(value="진단 중...")
+
+        r_manga = ctk.CTkFrame(c3, fg_color="transparent")
+        r_manga.pack(fill="x", pady=4)
+        ctk.CTkLabel(r_manga, text="• manga-ocr 설치 상태:", width=180, anchor="w", font=ctk.CTkFont(weight="bold")).pack(side="left")
+        ctk.CTkLabel(r_manga, textvariable=self.status_manga_var, anchor="w").pack(side="left", fill="x", expand=True)
+        ctk.CTkButton(r_manga, text="📥 manga-ocr (1GB) 설치", command=self.install_manga_ocr).pack(side="right")
+
+        ctk.CTkLabel(c3, text="※ 일본어 만화 전용 OCR engine - 설치 시 텍스트 인식률 대폭 향상. 미설치 시 기본 Tesseract 사용.",
+                     text_color=("#666666","#999999"), justify="left").pack(anchor="w", pady=(6,0))
+
+        # Initial status refresh
+        self.after(200, self.refresh_system_status)
+
+    def refresh_system_status(self):
+        """시스템 환경 및 로컬 AI 런타임 연결 상태를 백그라운드에서 실시간 진단."""
+        def work():
+            py_ver = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+            py_str = f"✅ 사용 중 ({sys.executable} - Python {py_ver})"
+
+            pkgs = ["pymupdf", "customtkinter", "anthropic", "google.genai", "openai", "numpy", "cv2", "PIL"]
+            missing = []
+            for pkg in pkgs:
+                try:
+                    importlib.import_module(pkg)
+                except Exception:
+                    missing.append(pkg)
+
+            if not missing:
+                pkg_str = "✅ 모든 필수 패키지 정상 설치됨 (PyMuPDF, customtkinter, numpy 등)"
+            else:
+                pkg_str = f"⚠️ 누락된 패키지 있음 ({', '.join(missing)}) - [패키지 설치] 권장"
+
+            def check_url(port, path):
+                try:
+                    with urllib.request.urlopen(f"http://localhost:{port}{path}", timeout=1.5) as r:
+                        if r.status == 200:
+                            return True
+                except Exception:
+                    pass
+                return False
+
+            lem_active = check_url(13305, "/api/v1/models")
+            lem_installed = self._lemonade_ok()
+            if lem_active:
+                lem_str = "✅ 실행 중 / 연동 가능 (http://localhost:13305)"
+            elif lem_installed:
+                lem_str = "⚠️ 설치됨 (현재 서버 미실행 상태)"
+            else:
+                lem_str = "❌ 미설치"
+
+            oll_ok = check_url(11434, "/v1/models")
+            oll_str = "✅ 실행 중 / 연동 가능 (http://localhost:11434)" if oll_ok else "⚠️ 미실행 또는 미설치"
+
+            lms_ok = check_url(1234, "/v1/models")
+            lms_str = "✅ 실행 중 / 연동 가능 (http://localhost:1234)" if lms_ok else "⚠️ 미실행 또는 미설치"
+
+            jan_ok = check_url(1337, "/v1/models")
+            kob_ok = check_url(5001, "/v1/models")
+            if jan_ok and kob_ok:
+                oth_str = "✅ Jan.ai 및 KoboldCPP 모두 실행 중"
+            elif jan_ok:
+                oth_str = "✅ Jan.ai 실행 중 (http://localhost:1337)"
+            elif kob_ok:
+                oth_str = "✅ KoboldCPP 실행 중 (http://localhost:5001)"
+            else:
+                oth_str = "⚠️ 미실행 또는 미설치"
+
+            try:
+                importlib.import_module("manga_ocr")
+                manga_str = "✅ 설치 완료 (일본어 만화 OCR 활성화)"
+            except Exception:
+                manga_str = "💡 미설치 (기본 Tesseract OCR 사용 중)"
+
+            self.after(0, lambda: self._apply_status_vars(py_str, pkg_str, lem_str, oll_str, lms_str, oth_str, manga_str))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _apply_status_vars(self, py_str, pkg_str, lem_str, oll_str, lms_str, oth_str, manga_str):
+        if hasattr(self, 'status_py_var'):
+            self.status_py_var.set(py_str)
+            self.status_pkg_var.set(pkg_str)
+            self.status_lemonade_var.set(lem_str)
+            self.status_ollama_var.set(oll_str)
+            self.status_lmstudio_var.set(lms_str)
+            self.status_other_runtimes_var.set(oth_str)
+            self.status_manga_var.set(manga_str)
 
     # -- 탭 4: 로그 ---------------------------------------------------------
     def build_log_tab(self, tab):
@@ -391,20 +639,45 @@ class App(ctk.CTk):
         self.log = ctk.CTkTextbox(wrap, wrap="word", font=ctk.CTkFont(family="Consolas", size=12))
         self.log.pack(fill="both", expand=True)
 
-    def add_api(self, provider):
-        row=ctk.CTkFrame(self.api_frame, fg_color="transparent"); row.pack(fill="x", pady=3)
-        on=tk.BooleanVar(value=False); pv=tk.StringVar(value=provider); key=tk.StringVar()
-        ctk.CTkCheckBox(row,text="",variable=on,width=24).pack(side="left")
-        provider_opt=OptionRow(row, pv, ("gemini","anthropic","openai"), width=120)
-        provider_opt.pack(side="left", padx=6)
-        ctk.CTkEntry(row,textvariable=key,show="●").pack(side="left",fill="x",expand=True)
-        item=[row,on,pv,key]
-        ctk.CTkButton(row,text="삭제",width=60,fg_color=DANGER,hover_color=DANGER_HOVER,
-                     command=lambda:self.remove_api(item)).pack(side="left",padx=6)
+    def add_api(self, provider="gemini"):
+        row = ctk.CTkFrame(self.api_frame, fg_color="transparent")
+        row.pack(fill="x", pady=3)
+        on = tk.BooleanVar(value=False)
+        pv = tk.StringVar(value=provider)
+        key = tk.StringVar()
+
+        ctk.CTkCheckBox(row, text="", variable=on, width=24).pack(side="left")
+
+        presets = ["gemini", "anthropic", "openai", "deepseek", "openrouter", "groq", "ollama", "직접 입력"]
+        if provider and provider not in presets:
+            presets.insert(0, provider)
+
+        provider_combo = ctk.CTkComboBox(
+            row,
+            variable=pv,
+            values=presets,
+            width=130,
+            command=lambda choice: self._on_provider_select(choice, pv, provider_combo)
+        )
+        provider_combo.pack(side="left", padx=6)
+
+        ctk.CTkEntry(row, textvariable=key, show="●", placeholder_text="API Key 입력").pack(side="left", fill="x", expand=True)
+
+        item = [row, on, pv, key]
+        ctk.CTkButton(row, text="삭제", width=60, fg_color=DANGER, hover_color=DANGER_HOVER,
+                      command=lambda: self.remove_api(item)).pack(side="left", padx=6)
         self.api_rows.append(item)
-    def remove_api(self,item):
+
+    def _on_provider_select(self, choice, var, combo):
+        if choice == "직접 입력":
+            var.set("")
+            combo.set("")
+            combo.focus_set()
+
+    def remove_api(self, item):
         item[0].destroy()
-        if item in self.api_rows:self.api_rows.remove(item)
+        if item in self.api_rows:
+            self.api_rows.remove(item)
 
     # ------------------------------------------------------------------
     # 필수사항 설치: Python 3.12 -> Lemonade Server -> pip requirements 순차 진행
@@ -741,8 +1014,14 @@ class App(ctk.CTk):
         self._open_path(self.last_output_path)
 
     # 런타임별 기본 포트/API 경로 (translate_pdf.RUNTIME_REGISTRY와 동기화)
-    _RUNTIME_PORTS = {"lemonade": (13305, "/api/v1/models"), "ollama": (11434, "/v1/models"),
-                      "lmstudio": (1234, "/v1/models")}
+    _RUNTIME_PORTS = {
+        "lemonade": (13305, "/api/v1/models"),
+        "ollama": (11434, "/v1/models"),
+        "lmstudio": (1234, "/v1/models"),
+        "jan": (1337, "/v1/models"),
+        "koboldcpp": (5001, "/v1/models"),
+        "anythingllm": (3001, "/v1/models"),
+    }
 
     def on_runtime_changed(self,*_):
         """런타임 드롭다운이 바뀌면 그 런타임이 지원하는 장치만 체크 가능하게 하고,
@@ -773,31 +1052,79 @@ class App(ctk.CTk):
         port,path=self._RUNTIME_PORTS.get(rt,(PORT,"/api/v1/models"))
         self.status.set(f"{label} 모델 조회 중...")
         def work():
-            found=[]
+            found_tuples=[]
             try:
-                with urllib.request.urlopen(f"http://localhost:{port}{path}",timeout=3) as r:d=json.load(r)
+                with urllib.request.urlopen(f"http://localhost:{port}{path}",timeout=3) as r:
+                    d=json.load(r)
                 items=d.get("data",[]) if isinstance(d,dict) else d
                 for x in items:
-                    m=(x.get("id") or x.get("model") or x.get("name")) if isinstance(x,dict) else str(x)
-                    if m and m not in found:found.append(m)
-            except Exception:pass
-            self.after(0,lambda:self.set_models(found,label))
+                    if isinstance(x,dict):
+                        m=x.get("id") or x.get("model") or x.get("name")
+                        is_dl=bool(x.get("downloaded",False))
+                        recipe=str(x.get("recipe","")).lower()
+                    else:
+                        m=str(x)
+                        is_dl=False
+                        recipe=""
+                    if m:
+                        tup=(m,is_dl,recipe)
+                        if tup not in found_tuples:
+                            found_tuples.append(tup)
+            except Exception:
+                pass
+            self.after(0,lambda:self.set_models(found_tuples,label))
         threading.Thread(target=work,daemon=True).start()
 
     @staticmethod
-    def _is_npu_model(name:str)->bool:
-        """모델명 접미사로 실제 실행 장치 추정 (translate_pdf.model_recipe_device와 동기화).
-        '-FLM' 접미사 = NPU 전용(FLM 레시피), 그 외(-GGUF 등) = GPU/CPU(llamacpp 레시피)."""
+    def _is_npu_model(name:str, recipe:str="")->bool:
+        """모델명/레시피로 실제 실행 장치 추정."""
+        if recipe in ("flm", "ryzen-ai", "npu"):
+            return True
         n=name.lower()
-        return n.endswith("-flm") or "-flm-" in n
+        return n.endswith("-flm") or "-flm-" in n or "ryzen" in n or "npu" in n
 
-    def set_models(self,found,label="Lemonade"):
-        if not found:found=["gemma4-it-e2b-FLM","gemma4-it-e4b-FLM","Gemma-3-4b-it-GGUF","qwen3-it-4b-FLM"]
-        npu_found=[m for m in found if self._is_npu_model(m)]
-        gpu_found=[m for m in found if not self._is_npu_model(m)]
-        self.npu_models.set_values(npu_found or ["gemma4-it-e2b-FLM"])
-        self.gpu_models.set_values(gpu_found or ["Gemma-3-4b-it-GGUF"])
-        self.model_changed(); self.status.set("대기 중" if found else f"{label} 서버 연결 실패")
+    def set_models(self,found_tuples,label="Lemonade"):
+        if found_tuples:
+            # 다운로드 완료된 모델(is_dl=True)을 상위에 노출
+            downloaded=[t for t in found_tuples if t[1]]
+            other=[t for t in found_tuples if not t[1]]
+            ordered=downloaded+other
+            npu_found=[m for m,dl,r in ordered if self._is_npu_model(m,r)]
+            gpu_found=[m for m,dl,r in ordered if not self._is_npu_model(m,r)]
+        else:
+            npu_found=[]
+            gpu_found=[]
+
+        cur_npu=self.model_npu.get()
+        cur_gpu=self.model_gpu.get()
+
+        npu_opts=list(npu_found) or ["gemma4-it-e2b-FLM","gemma4-it-e4b-FLM","qwen3-it-4b-FLM"]
+        gpu_opts=list(gpu_found) or ["Gemma-3-4b-it-GGUF","Qwen2.5-Coder-3B-Instruct-GGUF-Q4_K_M"]
+
+        if cur_npu and cur_npu not in npu_opts:
+            npu_opts.insert(0,cur_npu)
+        if cur_gpu and cur_gpu not in gpu_opts:
+            gpu_opts.insert(0,cur_gpu)
+
+        self.npu_models.set_values(npu_opts)
+        self.gpu_models.set_values(gpu_opts)
+
+        if cur_npu in npu_opts:
+            self.model_npu.set(cur_npu)
+        elif npu_found:
+            self.model_npu.set(npu_found[0])
+
+        if cur_gpu in gpu_opts:
+            self.model_gpu.set(cur_gpu)
+        elif gpu_found:
+            self.model_gpu.set(gpu_found[0])
+
+        self.model_changed()
+        if found_tuples:
+            dl_cnt=sum(1 for _,dl,_ in found_tuples if dl)
+            self.status.set(f"대기 중 (감지된 모델 {len(found_tuples)}개, 설치 완료 {dl_cnt}개)")
+        else:
+            self.status.set(f"{label} 서버 연결 실패 (기본 목록 표시)")
 
     def model_changed(self,*_):
         # 배치/토큰 프리셋은 실제로 쓰일 모델(체크된 장치 우선, NPU 우선) 기준으로 계산

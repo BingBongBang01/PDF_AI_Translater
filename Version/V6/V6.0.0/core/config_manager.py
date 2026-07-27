@@ -19,7 +19,7 @@ class ConfigManager:
             "active_profile": "default",
             "translation": {
                 "provider": "google",
-                "model": "gemini-2.5-pro",
+                "model": "gemini-2.5-flash",
                 "temperature": 0.3,
                 "max_tokens": 8192
             },

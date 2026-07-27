@@ -1,3 +1,4 @@
+from core.i18n import tr
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QMessageBox, QFileDialog
 )
@@ -34,10 +35,10 @@ class HistoryPage(BasePage):
         self.search_box.setPlaceholderText("Search history...")
         self.search_box.setFixedWidth(300)
         
-        self.btn_filter = MaterialButton("Filter")
-        self.btn_refresh = MaterialButton("Refresh")
-        self.btn_delete = MaterialButton("Delete Selected")
-        self.btn_export = MaterialButton("Export History")
+        self.btn_filter = MaterialButton(tr("Filter"))
+        self.btn_refresh = MaterialButton(tr("Refresh"))
+        self.btn_delete = MaterialButton(tr("Delete Selected"))
+        self.btn_export = MaterialButton(tr("Export History"))
         
         self.btn_delete.setStyleSheet("color: var(--md-sys-color-error);")
         

@@ -129,3 +129,4 @@ class MaterialLabel(QLabel):
     def __init__(self, text="", parent=None):
         super().__init__(text, parent)
         self.setProperty('m3_typography', 'body_medium')
+        self.setWordWrap(True)

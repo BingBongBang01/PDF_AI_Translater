@@ -18,7 +18,13 @@ class GeminiProvider(BaseProvider):
         
     def list_models(self) -> dict[str, ModelCapability]:
         return {
-            "gemini-1.5-pro": ModelCapability(context_window=2000000, supports_streaming=True)
+            "gemini-1.5-pro": ModelCapability(context_window=2000000, supports_streaming=True),
+            "gemini-2.5-flash": ModelCapability(context_window=2000000, supports_streaming=True),
+            "gemini-3.5-flash-lite": ModelCapability(context_window=250000, supports_streaming=True),
+            "gemini-3.6-flash": ModelCapability(context_window=250000, supports_streaming=True),
+            "gemini-3.5-flash": ModelCapability(context_window=250000, supports_streaming=True),
+            "gemini-3.1-flash-lite": ModelCapability(context_window=250000, supports_streaming=True),
+            "gemini-3.1-pro": ModelCapability(context_window=2000000, supports_streaming=True)
         }
         
     def translate(self, request: TranslationRequest) -> TranslationResponse:

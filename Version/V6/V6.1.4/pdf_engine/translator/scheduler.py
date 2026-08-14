@@ -144,7 +144,20 @@ def translate_all_batches(pool: list["KeyEntry"], args, system_prompt: str, temp
     if cache_hits > 0:
         get_logger().log(f"  [캐시 힛] 총 {len(segments)}개 세그먼트 중 {cache_hits}개 세그먼트를 디스크 캐시에서 복원했습니다.")
 
-    targets = [s for s in segments if s.needs_translation]
+    all_targets = [s for s in segments if s.needs_translation]
+    # 캐시에서 복원된 세그먼트는 이번 실행에서 API로 다시 보낼 필요가 없다.
+    #
+    # 실제 확인된 문제: 예전에는 캐시 복원 여부와 상관없이 needs_translation인 세그먼트를
+    # 전부 배치에 넣어 API로 다시 보냈다. 사용자 로그에서 "168개 중 146개를 캐시에서
+    # 복원"해 놓고도 147개 전부를 6개 배치로 다시 요청한 것이 그 결과다 - 캐시가 아낀
+    # 요청이 0이었고, 무료 티어의 하루 요청 수(RPD)를 그대로 태웠다. 게다가 복원된
+    # 세그먼트는 이미 translated가 채워져 있어서 진행률 계산의 분자에 처음부터 잡혔고,
+    # 그래서 첫 [진행] 줄부터 99.3%가 찍힌 뒤 실제 번역은 그 후에 진행됐다
+    # (사용자가 본 "진행바가 극초반에 99%로 튄 뒤 100%에서도 계속 작업" 증상).
+    targets = [s for s in all_targets if s.translated is None]
+    if cache_hits > 0:
+        get_logger().log(f"  [번역 대상] 이번 실행에서 API로 번역할 세그먼트 {len(targets)}개 "
+                         f"(캐시 복원 {cache_hits}개는 요청하지 않음)")
     batches = list(make_batches(targets, args.batch_chars, args.batch_segs))
     prev_pairs: list[tuple[str, str]] = []
     total_chars_sent = 0
@@ -353,8 +366,10 @@ def translate_all_batches(pool: list["KeyEntry"], args, system_prompt: str, temp
         """
         GUI 진행바/상태 텍스트가 파싱하는 구조화 로그 라인을 찍는다.
 
-        pct는 예전처럼 '배치 번호 / 전체 배치 수'가 아니라 '실제로 처리(번역 성공 또는
-        원문 유지로 확정)된 세그먼트 수 / 전체 대상 세그먼트 수'로 계산한다. RPD(일일
+        pct는 '실제로 처리(번역 성공 또는 원문 유지로 확정)된 세그먼트 수 / 이번 실행의
+        번역 대상 세그먼트 수'다. 분모(targets)에서 캐시 복원분은 이미 빠져 있으므로
+        항상 0%에서 시작해 100%까지 단조 증가한다 - 예전에는 캐시로 채워진 세그먼트가
+        분자에 처음부터 잡혀 첫 줄부터 99.3%가 찍혔다. RPD(일일
         요청 수)를 아끼려고 배치를 일부러 크게 잡은 모델(예: Gemini 표준 Flash)에서는
         배치 하나의 세그먼트 수가 서로 크게 달라서, 배치 번호 기준 pct는 "배치 4개 중
         1개 끝났으니 25%"처럼 실제 작업량과 안 맞는 계단식으로 튀었다. 세그먼트 수
@@ -371,6 +386,13 @@ def translate_all_batches(pool: list["KeyEntry"], args, system_prompt: str, temp
         if pbar_callback is not None:
             pbar_callback(bi_local, len(batches), pct)
         return pct
+
+    if not batches:
+        # 전부 캐시에서 복원된 경우 - API 호출은 한 번도 하지 않는다. 그래도 진행바가
+        # 번역 단계에서 멈춘 것처럼 보이지 않도록 100% 라인은 한 번 찍어 준다.
+        get_logger().log(f"  [진행] batch=0/0 segs=0/0 pages=0/0 pct=100.0")
+        if pbar_callback is not None:
+            pbar_callback(0, 0, 100.0)
 
     for bi, batch in enumerate(batches, 1):
         if STOP_EVENT.is_set():
@@ -684,8 +706,8 @@ def translate_all_batches(pool: list["KeyEntry"], args, system_prompt: str, temp
         status_word = "중단됨"
     else:
         status_word = "완료"
-    get_logger().log(f"[3/4] 번역 {status_word}: {len(targets)}개 세그먼트, "
-          f"원문 {total_chars_sent:,}자 전송")
+    get_logger().log(f"[3/4] 번역 {status_word}: API {len(targets)}개 + 캐시 {cache_hits}개 "
+          f"= 전체 {len(all_targets)}개 세그먼트, 원문 {total_chars_sent:,}자 전송")
     return aborted or stopped_by_user
 
 

@@ -654,6 +654,7 @@ class App(ctk.CTk):
             pass
         self.q=queue.Queue(); self.proc=None; self.keyfile=None; self.engine_completed=False
         self.engine=None; self.start_time=None; self.pct=0.0
+        self.trans_pct=0.0   # 번역 단계 자체의 진행률(0~100). 전체 진행률과는 별개로 표시한다
         self.inp=tk.StringVar(); self.out=tk.StringVar(); self.pages=tk.StringVar()
         self.src=tk.StringVar(value="English"); self.dst=tk.StringVar(value="한국어")
         self.model_npu=tk.StringVar(value="gemma4-it-e2b-FLM")
@@ -1716,6 +1717,7 @@ class App(ctk.CTk):
         self.engine_completed=False
         self.progress.set(0)
         self.pct=0.0
+        self.trans_pct=0.0
         self.start_time=time.time()
         self.prog_info.set(f"시작: {time.strftime('%H:%M:%S')}")
         self.startbtn.configure(state="disabled")
@@ -1759,6 +1761,26 @@ class App(ctk.CTk):
                     else: os.environ[k]=v
         threading.Thread(target=run,daemon=True).start()
 
+    # 전체 작업(추출 -> 번역 -> 후처리 -> 저장 -> 압축)에서 각 단계가 차지하는 진행률 구간.
+    # 번역만 0~100%로 잡으면, 번역이 끝난 뒤에도 재구성/저장/압축이 몇 분씩 더 걸리는데
+    # 진행바는 이미 100%에 붙어 있어 "다 됐다는데 왜 계속 도나" 하는 상태가 된다
+    # (실제로 사용자가 겪은 증상). 번역은 전체의 8~85% 구간에 매핑한다.
+    STAGE_EXTRACT   = 6.0    # [1/4] 추출 완료
+    STAGE_PREPARE   = 8.0    # 문맥 감지/플레이스홀더 등 번역 직전 준비
+    STAGE_TRANS_END = 85.0   # 번역 완료
+    STAGE_POST      = 88.0   # 후처리/검증
+    STAGE_SAVE      = 91.0   # PDF 재구성/저장 시작
+    STAGE_REBUILT   = 95.0   # [4/4] 재구성 완료
+    STAGE_COMPRESS  = 98.0   # 압축
+
+    def set_overall(self, pct: float):
+        """전체 진행률을 갱신한다. 뒤로 가지 않도록(단조 증가) 보정한다."""
+        pct = max(0.0, min(100.0, float(pct)))
+        if pct < self.pct:
+            return
+        self.pct = pct
+        self.progress.set(pct / 100.0)
+
     def poll(self):
         try:
             while True:
@@ -1776,14 +1798,19 @@ class App(ctk.CTk):
                     if pm:
                         bi,bn=int(pm.group(1)),int(pm.group(2))
                         sd,st=(int(pm.group(3)),int(pm.group(4))) if pm.group(3) else (None,None)
-                        pd,pt,pct=int(pm.group(5)),int(pm.group(6)),float(pm.group(7))
-                        self.pct=pct
-                        self.progress.set(pct/100)
+                        pd,pt,tpct=int(pm.group(5)),int(pm.group(6)),float(pm.group(7))
+                        # 엔진의 pct는 '번역 대상 세그먼트 중 몇 개를 끝냈는지'(캐시 복원분
+                        # 제외)라서 항상 0%에서 시작해 100%까지 올라간다. 그것을 전체
+                        # 작업의 번역 구간(8~85%)에 비례 배분한다.
+                        self.trans_pct=tpct
+                        self.set_overall(self.STAGE_PREPARE
+                                         + (self.STAGE_TRANS_END-self.STAGE_PREPARE)*tpct/100.0)
                         if sd is not None:
                             self.status.set(f"번역 중 - {sd}/{st}세그먼트 · {pd}/{pt}페이지 "
-                                            f"(배치 {bi}/{bn}, {pct:.1f}%)")
+                                            f"(배치 {bi}/{bn}, 번역 {tpct:.1f}% · 전체 {self.pct:.1f}%)")
                         else:
-                            self.status.set(f"번역 중 - 전체 {pt}페이지 중 {pd}페이지 진행 (배치 {bi}/{bn}, {pct:.1f}%)")
+                            self.status.set(f"번역 중 - 전체 {pt}페이지 중 {pd}페이지 진행 "
+                                            f"(배치 {bi}/{bn}, 번역 {tpct:.1f}% · 전체 {self.pct:.1f}%)")
                     else:
                         # 요청 전송/응답 대기/응답 수신 - 진행바는 이미 [진행] 라인이 갱신하므로
                         # 여기선 상태 텍스트만 실시간으로 바꿔 "지금 뭘 하는 중인지" 보여준다
@@ -1801,14 +1828,38 @@ class App(ctk.CTk):
                             self.status.set(f"번역 중 - {vm.group(3)} 응답 수신 ({vm.group(4)}초) "
                                             f"- {vm.group(5)}/{vm.group(6)}개 번역됨")
                         else:
+                            # 단계 표시 로그를 전체 진행률 구간에 매핑한다.
+                            # (번역 구간은 위 [진행] 라인이 담당하므로 여기서는 앞뒤 단계만)
                             m=re.search(r"\[batch (\d+)/(\d+)\]",val)
-                            if m and self.pct==0:
-                                self.progress.set(min(1.0,(10+80*int(m.group(1))/max(1,int(m.group(2))))/100))
-                            elif "[1/4]" in val:self.progress.set(0.05)
-                            elif "[3/4]" in val:self.progress.set(max(self.progress.get(),0.92))
+                            if m and self.trans_pct==0:
+                                # [진행] 라인이 아직 안 나온 첫 배치 구간의 임시 추정치
+                                bi_,bn_=int(m.group(1)),max(1,int(m.group(2)))
+                                self.set_overall(self.STAGE_PREPARE
+                                                 + (self.STAGE_TRANS_END-self.STAGE_PREPARE)
+                                                 * (bi_-1)/bn_)
+                            elif "[1/4]" in val or "[1/5]" in val:
+                                self.set_overall(self.STAGE_EXTRACT)
+                            elif "[1.5/5]" in val or "[2/5]" in val or "[3/5]" in val:
+                                self.set_overall(self.STAGE_PREPARE)
+                            elif "[3/4]" in val:
+                                self.set_overall(self.STAGE_TRANS_END)
+                                self.status.set("번역 완료 - 후처리 중...")
+                            elif "[4/5]" in val:
+                                self.set_overall(self.STAGE_POST)
+                            elif "[저장]" in val:
+                                self.set_overall(self.STAGE_SAVE)
+                                self.status.set("번역문을 PDF에 삽입하는 중...")
                             elif "[4/4]" in val:
-                                self.progress.set(1.0)
+                                self.set_overall(self.STAGE_REBUILT)
+                                self.status.set("PDF 재구성 완료 - 마무리 중...")
                                 self.engine_completed=True
+                            elif "[압축 시작]" in val:
+                                self.set_overall(self.STAGE_COMPRESS)
+                                self.status.set("PDF 압축 중... (파일이 크면 수십 초 걸립니다)")
+                            elif "[압축]" in val:
+                                self.set_overall(99.0)
+                            elif "[최종파일]" in val:
+                                self.set_overall(100.0)
                 else:
                     self.cleanup();self.startbtn.configure(state="normal");self.stopbtn.configure(state="disabled")
                     self.start_time=None

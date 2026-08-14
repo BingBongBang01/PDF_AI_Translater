@@ -555,6 +555,10 @@ def main():
 
     final_path = out_path
     if not getattr(args, "no_compress", False):
+        # 압축은 큰 PDF에서 수십 초~몇 분이 걸린다. 결과 로그([압축] ...)는 끝난 뒤에야
+        # 나오므로, 시작 시점을 따로 알려야 GUI 진행바/상태가 그동안 멈춰 보이지 않는다.
+        print(f"[압축 시작] 최종 PDF 최적화 중... "
+              f"({out_path.stat().st_size / 1048576:.1f}MB)")
         compressed = compress_pdf(out_path)
         if compressed is not None:
             final_path = compressed

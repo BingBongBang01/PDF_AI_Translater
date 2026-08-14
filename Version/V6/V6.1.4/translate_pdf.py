@@ -204,6 +204,21 @@ def parse_args():
     ap.add_argument("--min-interval", type=float, default=0.0,
                     help="API 요청 사이 최소 간격(초). 분당 요청 제한(RPM)에 걸리면 "
                          "예: 무료/저티어는 6~10 정도로 설정해 선제적으로 속도 조절")
+    ap.add_argument("--api-balance", default="balanced", choices=["balanced", "quality"],
+                    help="여러 키/모델을 쓰는 방식. balanced(기본)=상위 모델들을 동급으로 보고 "
+                         "키·모델에 고르게 분산(무료 티어 한도를 몇 배로 활용). "
+                         "quality=1순위 모델만 쓰고 막히면 아래로 내려감")
+    ap.add_argument("--api-spread", type=int, default=4,
+                    help="balanced 모드에서 '동급'으로 묶어 고르게 돌려 쓸 상위 모델 수 (기본 4). "
+                         "1이면 quality 모드와 같아진다")
+    ap.add_argument("--api-rpm", type=int, default=0,
+                    help="모델·키당 분당 요청 한도 직접 지정 (0=provider 기본값, 음수=한도 없음). "
+                         "Gemini 무료 티어 기본 5")
+    ap.add_argument("--api-rpd", type=int, default=0,
+                    help="모델·키당 하루 요청 한도 직접 지정 (0=provider 기본값, 음수=한도 없음). "
+                         "Gemini 무료 티어 기본 20")
+    ap.add_argument("--api-overload-cooldown", type=float, default=45.0,
+                    help="503(서버 과부하)을 받은 모델을 몇 초 쉬게 할지. 그동안 다른 모델/키를 쓴다")
     ap.add_argument("--max-rate-limit-retries", type=int, default=0,
                     help="429(할당량 초과) 재시도 최대 횟수. 0=무제한 (서버가 알려준 대기시간만큼 "
                          "자동으로 자고 계속 재시도)")

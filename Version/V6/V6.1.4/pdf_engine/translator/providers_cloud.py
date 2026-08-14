@@ -19,6 +19,7 @@ from pathlib import Path
 
 from pdf_engine.config.settings import DEFAULT_MODELS, _parse_local_devices
 from pdf_engine.placeholder.batching import is_label_like
+from pdf_engine.translator.ratelimit import GLOBAL_LEDGER, key_fingerprint, limits_for
 
 @dataclass
 class KeyEntry:
@@ -32,6 +33,12 @@ class KeyEntry:
     priority: int = 0   # 낮을수록 먼저 쓴다. 같은 키의 모델 폴백 체인에서 모델의 순위.
                         # Gemini는 한도가 모델별로 독립이라, 키가 하나여도 우선순위가 높은
                         # 모델부터 쓰다가 그 모델이 한도에 걸리면 다음 모델로 자동 전환된다.
+    key_id: str = ""    # 키의 짧은 해시(원본 키는 저장하지 않는다). 사용량 장부의 키.
+    key_no: int = 0     # 같은 provider 안에서 몇 번째 키인지 (키 단위 분산에 쓴다)
+    rpm_limit: int | None = None  # 분당 요청 한도(모델·키별). None=모름/무제한
+    rpd_limit: int | None = None  # 일일 요청 한도(모델·키별). None=모름/무제한
+    calls: int = 0      # 이번 실행에서 이 항목으로 보낸 요청 수 (분산 계산 + 마지막 요약용)
+    last_used: float = 0.0        # 마지막 사용 시각(time.monotonic). 같은 순위끼리 LRU 분산
 
 
 _KEY_PREFIXES = {
@@ -319,6 +326,8 @@ def get_key_pool(args) -> list[KeyEntry]:
             chains[provider].append(chain)
         api_timeout = getattr(args, "api_timeout", DEFAULT_API_TIMEOUT)
         client = build_client(provider, key, api_timeout)   # 키당 클라이언트 1개를 모든 모델이 공유
+        rpm_limit, rpd_limit = limits_for(provider, args)
+        fp = key_fingerprint(key)
         for rank, model in enumerate(chain):
             label = f"{provider}#{key_no}"
             if len(chain) > 1:
@@ -329,6 +338,10 @@ def get_key_pool(args) -> list[KeyEntry]:
                 client=client,
                 label=label,
                 priority=rank,
+                key_id=fp,
+                key_no=key_no,
+                rpm_limit=rpm_limit,
+                rpd_limit=rpd_limit,
             ))
     if pool:
         for p, n in counts.items():
@@ -338,8 +351,22 @@ def get_key_pool(args) -> list[KeyEntry]:
                                      + " > ".join(chain))
                 else:
                     get_logger().log(f"[정보] {p} 키 {n}개 로드됨 -> 모델 {chain[0] if chain else '?'}")
-        get_logger().log(f"[정보] 총 번역 경로 {len(pool)}개 "
-                         f"(한도 소진 시 우선순위 순으로 자동 전환)")
+        limited = [e for e in pool if e.rpd_limit]
+        if limited:
+            cap = sum(e.rpd_limit for e in limited)
+            used = sum(GLOBAL_LEDGER.used_today(e.key_id, e.model) for e in limited)
+            get_logger().log(f"[정보] 총 번역 경로 {len(pool)}개 "
+                             f"(오늘 사용량 장부 기준 {used}/{cap}회 사용, "
+                             f"한도에 닿기 전에 다른 키/모델로 자동 분산)")
+            # 이미 오늘 많이 쓴 항목은 미리 알려 준다 - "왜 1순위 모델을 안 쓰지?"를 설명해 준다.
+            hot = [e for e in limited
+                   if GLOBAL_LEDGER.used_today(e.key_id, e.model) >= max(1, int(e.rpd_limit * 0.5))]
+            for e in sorted(hot, key=lambda x: -GLOBAL_LEDGER.used_today(x.key_id, x.model))[:6]:
+                get_logger().log(f"       - {e.label}: 오늘 "
+                                 f"{GLOBAL_LEDGER.used_today(e.key_id, e.model)}/{e.rpd_limit}회 사용됨")
+        else:
+            get_logger().log(f"[정보] 총 번역 경로 {len(pool)}개 "
+                             f"(한도 소진 시 우선순위 순으로 자동 전환)")
     return pool
 
 def call_claude(client, model: str, system_prompt: str, user_prompt: str,
@@ -401,6 +428,11 @@ def _gemini_finish_info(resp) -> str:
     return ", ".join(bits) or "원인 정보 없음"
 
 
+# thinking_config를 붙이면 400을 돌려주는 모델 이름을 실행 중에 기억해 둔다
+# (모델마다 지원 여부가 달라서, 한 번 확인하면 그 뒤로는 헛된 왕복을 안 한다).
+_GEMINI_NO_THINKING_CONFIG: set[str] = set()
+
+
 def call_gemini(client, model: str, system_prompt: str, user_prompt: str,
                 max_tokens: int, temperature: float | None) -> str:
     from google.genai import types
@@ -420,10 +452,11 @@ def call_gemini(client, model: str, system_prompt: str, user_prompt: str,
     # 번역엔 사고가 필요 없으므로 thinking_budget=0으로 끄고, 이 필드를 모르는 구버전
     # SDK/모델이면 조용히 빼고 재시도한다.
     thinking_kwargs = {}
-    try:
-        thinking_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
-    except Exception:
-        pass
+    if model not in _GEMINI_NO_THINKING_CONFIG:
+        try:
+            thinking_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
+        except Exception:
+            pass
 
     def _generate(extra: dict):
         config = types.GenerateContentConfig(**{**config_kwargs, **extra})
@@ -433,9 +466,25 @@ def call_gemini(client, model: str, system_prompt: str, user_prompt: str,
         resp = _generate(thinking_kwargs)
     except Exception as e:
         msg = str(e).lower()
-        if thinking_kwargs and ("thinking" in msg or "budget" in msg):
-            thinking_kwargs = {}  # 이 모델은 thinking 설정을 지원하지 않음
-            resp = _generate(thinking_kwargs)
+        # 실제 확인된 문제: gemini-3.6-flash가 위 설정 그대로면 "400 INVALID_ARGUMENT:
+        # Request contains an invalid argument."만 돌려준다. 메시지에 'thinking'/'budget'
+        # 같은 단서가 전혀 없어서 예전 조건("thinking" in msg)에 안 걸렸고, 그대로 실패로
+        # 올라가 그 모델이 폴백 체인에서 통째로 무용지물이 됐다(로그: 문맥 감지 단계에서
+        # 3.6-flash가 400으로 즉시 탈락). 400 계열이면 일단 thinking 설정을 빼고 한 번 더
+        # 시도하고, 그것이 통하면 이 모델은 이후 요청부터 아예 안 붙인다.
+        if thinking_kwargs and ("thinking" in msg or "budget" in msg or is_invalid_argument(e)):
+            thinking_kwargs = {}
+            try:
+                resp = _generate(thinking_kwargs)
+                _GEMINI_NO_THINKING_CONFIG.add(model)
+            except Exception as e2:
+                if temperature is not None and is_invalid_argument(e2):
+                    # 이 모델은 temperature까지 거부한다 (일부 신형 모델은 고정값만 허용)
+                    config_kwargs.pop("temperature", None)
+                    resp = _generate(thinking_kwargs)
+                    _GEMINI_NO_THINKING_CONFIG.add(model)
+                else:
+                    raise
         elif temperature is not None and "temperature" in msg:
             config_kwargs.pop("temperature", None)
             resp = _generate(thinking_kwargs)
@@ -678,6 +727,41 @@ def is_rate_limit_error(e: Exception) -> bool:
         "429", "resource_exhausted", "rate_limit", "rate limit",
         "quota exceeded", "insufficient_quota", "too many requests",
     ))
+
+
+def is_server_overload(e: Exception) -> bool:
+    """
+    서버 과부하/일시 장애(503 UNAVAILABLE, 500, 502, 504, overloaded 등)인지 판별.
+
+    실제 확인된 문제: Gemini의 503("This model is currently experiencing high demand")은
+    지금까지 '일반 오류'로 분류돼 max_attempts(기본 3)를 소비하며 같은 모델을 계속
+    때렸다. 게다가 일반 오류의 쿨다운은 2~15초라서 곧바로 부활 -> 두 키의 1순위 모델
+    사이만 왕복하다가 배치를 통째로 포기했다(로그의 batch 3: 25세그먼트가 그대로 원문
+    유지됨). 과부하는 '그 모델이 지금 붐빈다'는 뜻이지 요청이 잘못된 게 아니므로,
+    재시도 횟수를 소비하지 말고 그 모델만 넉넉히 쿨다운시킨 뒤 다른 모델/키로 내려가야
+    한다. 같은 순간에 3.6/3.5/3-flash는 멀쩡히 놀고 있었다.
+    """
+    code = getattr(e, "code", None) or getattr(e, "status_code", None)
+    if code in (500, 502, 503, 504):
+        return True
+    s = str(e).lower()
+    return any(kw in s for kw in (
+        "unavailable", "overloaded", "high demand", "service_unavailable",
+        "503", "502", "504", "internal error", "internal server error",
+    ))
+
+
+def is_invalid_argument(e: Exception) -> bool:
+    """
+    400 INVALID_ARGUMENT 계열. 같은 요청을 그대로 다시 보내면 100% 또 실패하므로
+    (모델이 그 설정/파라미터를 지원하지 않는다는 뜻) 재시도 대신 설정을 빼고 한 번
+    더 시도하거나, 그래도 안 되면 그 모델을 이번 실행에서 제외해야 한다.
+    """
+    code = getattr(e, "code", None) or getattr(e, "status_code", None)
+    if code == 400:
+        return True
+    s = str(e).lower()
+    return "invalid_argument" in s or "invalid argument" in s
 
 
 def is_auth_error(e: Exception) -> bool:

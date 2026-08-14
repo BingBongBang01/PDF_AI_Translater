@@ -676,6 +676,10 @@ class App(ctk.CTk):
         self.use_gpu=tk.BooleanVar(value=False)
         self.compress=tk.BooleanVar(value=True)
         self.auto_open=tk.BooleanVar(value=True)
+        # 여러 API 키/모델을 고르게 나눠 쓸지(기본) 아니면 1순위 모델만 쓸지.
+        # 무료 티어 한도(RPM/RPD)는 모델별·키별로 따로 세므로, 고르게 쓰면 하루에
+        # 처리할 수 있는 양이 (키 수 × 모델 수)배로 늘어난다.
+        self.api_balance=tk.BooleanVar(value=True)
         self.last_output_path=None
         self.cache_stats_var = tk.StringVar(value="조회 중...")
         self.build()
@@ -766,6 +770,11 @@ class App(ctk.CTk):
         row2 = ctk.CTkFrame(o, fg_color="transparent"); row2.pack(fill="x")
         ctk.CTkSwitch(row2, text="번역 후 PDF 압축", variable=self.compress, onvalue=True, offvalue=False).pack(side="left", padx=(0,24))
         ctk.CTkSwitch(row2, text="완료 시 결과 PDF 자동 열기", variable=self.auto_open, onvalue=True, offvalue=False).pack(side="left")
+        row3 = ctk.CTkFrame(o, fg_color="transparent"); row3.pack(fill="x", pady=(6,0))
+        ctk.CTkSwitch(row3, text="API 키·모델 고르게 분산 (무료 한도 절약, 권장)",
+                      variable=self.api_balance, onvalue=True, offvalue=False).pack(side="left")
+        ctk.CTkLabel(row3, text="끄면 1순위 모델만 쓰고 막힐 때만 아래 모델로 내려갑니다",
+                     text_color=("gray40", "gray60"), font=ctk.CTkFont(size=11)).pack(side="left", padx=10)
 
         # 번역 디스크 캐시 카드
         cache_c = card(scroll, "💾 번역 디스크 캐시 (SQLite)")
@@ -1376,6 +1385,7 @@ class App(ctk.CTk):
                 "use_npu":self.use_npu.get(),
                 "runtime":self.runtime.get(),"use_gpu":self.use_gpu.get(),
                 "compress":self.compress.get(),"auto_open":self.auto_open.get(),
+                "api_balance":self.api_balance.get(),
                 "cloud_chars":self.cloud_chars.get(),"cloud_segs":self.cloud_segs.get(),"cloud_tokens":self.cloud_tokens.get(),
                 "local_chars":self.local_chars.get(),"local_segs":self.local_segs.get(),"local_tokens":self.local_tokens.get(),
             }
@@ -1421,6 +1431,7 @@ class App(ctk.CTk):
         if data.get("runtime") in LOCAL_RUNTIMES:self.runtime.set(data["runtime"])
         if "use_gpu" in data:self.use_gpu.set(data["use_gpu"])
         if "compress" in data:self.compress.set(data["compress"])
+        if "api_balance" in data:self.api_balance.set(data["api_balance"])
         if "auto_open" in data:self.auto_open.set(data["auto_open"])
         if data.get("cloud_chars"):self.cloud_chars.set(data["cloud_chars"])
         if data.get("cloud_segs"):self.cloud_segs.set(data["cloud_segs"])
@@ -1695,6 +1706,7 @@ class App(ctk.CTk):
         if self.out.get().strip(): argv+=["-o",self.out.get().strip()]
         if devices: argv+=["--local-device",",".join(devices)]
         if not self.compress.get(): argv+=["--no-compress"]
+        argv+=["--api-balance","balanced" if self.api_balance.get() else "quality"]
 
         self.log.delete("1.0","end")
         for note in chain_note:
@@ -1757,22 +1769,46 @@ class App(ctk.CTk):
                     if fm:
                         self.last_output_path=fm.group(1).strip()
                         self.openresultbtn.configure(state="normal")
-                    # 엔진의 구조화 진행 라인: [진행] batch=i/N pages=p/P pct=xx.x
-                    pm=re.search(r"\[진행\] batch=(\d+)/(\d+) pages=(\d+)/(\d+) pct=([\d.]+)",val)
+                    # 엔진의 구조화 진행 라인: [진행] batch=i/N segs=d/D pages=p/P pct=xx.x
+                    # segs= 필드는 배치 크기와 무관하게 '실제 처리된 세그먼트 수' 기준이라
+                    # 진행률이 배치 경계마다 계단식으로 튀지 않고 매끄럽게 올라간다.
+                    pm=re.search(r"\[진행\] batch=(\d+)/(\d+)(?: segs=(\d+)/(\d+))? pages=(\d+)/(\d+) pct=([\d.]+)",val)
                     if pm:
-                        bi,bn,pd,pt,pct=int(pm.group(1)),int(pm.group(2)),int(pm.group(3)),int(pm.group(4)),float(pm.group(5))
+                        bi,bn=int(pm.group(1)),int(pm.group(2))
+                        sd,st=(int(pm.group(3)),int(pm.group(4))) if pm.group(3) else (None,None)
+                        pd,pt,pct=int(pm.group(5)),int(pm.group(6)),float(pm.group(7))
                         self.pct=pct
                         self.progress.set(pct/100)
-                        self.status.set(f"번역 중 - 전체 {pt}페이지 중 {pd}페이지 진행 (배치 {bi}/{bn}, {pct:.1f}%)")
+                        if sd is not None:
+                            self.status.set(f"번역 중 - {sd}/{st}세그먼트 · {pd}/{pt}페이지 "
+                                            f"(배치 {bi}/{bn}, {pct:.1f}%)")
+                        else:
+                            self.status.set(f"번역 중 - 전체 {pt}페이지 중 {pd}페이지 진행 (배치 {bi}/{bn}, {pct:.1f}%)")
                     else:
-                        m=re.search(r"\[batch (\d+)/(\d+)\]",val)
-                        if m and self.pct==0:
-                            self.progress.set(min(1.0,(10+80*int(m.group(1))/max(1,int(m.group(2))))/100))
-                        elif "[1/4]" in val:self.progress.set(0.05)
-                        elif "[3/4]" in val:self.progress.set(max(self.progress.get(),0.92))
-                        elif "[4/4]" in val:
-                            self.progress.set(1.0)
-                            self.engine_completed=True
+                        # 요청 전송/응답 대기/응답 수신 - 진행바는 이미 [진행] 라인이 갱신하므로
+                        # 여기선 상태 텍스트만 실시간으로 바꿔 "지금 뭘 하는 중인지" 보여준다
+                        # (긴 배치 응답을 기다리는 동안 화면이 멈춘 것처럼 보이지 않게).
+                        rm=re.search(r"\[batch (\d+)/(\d+)\] (.+?)로 (\d+)개 세그먼트 \(([\d,]+)자\) 요청 전송",val)
+                        wm=re.search(r"\[batch (\d+)/(\d+)\] (.+?) 응답 대기 중\.\.\. \((\d+)초 경과\)",val)
+                        vm=re.search(r"\[batch (\d+)/(\d+)\] (.+?) 응답 수신 \(([\d.]+)초\) -> (\d+)/(\d+)개",val)
+                        if rm:
+                            self.status.set(f"번역 중 - {rm.group(3)}에 {rm.group(4)}개 세그먼트 "
+                                            f"({rm.group(5)}자) 요청 전송 (배치 {rm.group(1)}/{rm.group(2)})")
+                        elif wm:
+                            self.status.set(f"번역 중 - {wm.group(3)} 응답 대기 중... "
+                                            f"({wm.group(4)}초 경과, 배치 {wm.group(1)}/{wm.group(2)})")
+                        elif vm:
+                            self.status.set(f"번역 중 - {vm.group(3)} 응답 수신 ({vm.group(4)}초) "
+                                            f"- {vm.group(5)}/{vm.group(6)}개 번역됨")
+                        else:
+                            m=re.search(r"\[batch (\d+)/(\d+)\]",val)
+                            if m and self.pct==0:
+                                self.progress.set(min(1.0,(10+80*int(m.group(1))/max(1,int(m.group(2))))/100))
+                            elif "[1/4]" in val:self.progress.set(0.05)
+                            elif "[3/4]" in val:self.progress.set(max(self.progress.get(),0.92))
+                            elif "[4/4]" in val:
+                                self.progress.set(1.0)
+                                self.engine_completed=True
                 else:
                     self.cleanup();self.startbtn.configure(state="normal");self.stopbtn.configure(state="disabled")
                     self.start_time=None

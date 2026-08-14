@@ -8,6 +8,7 @@ from pdf_engine.logger import get_logger
 
 import json
 import re
+import threading
 import time
 
 from pdf_engine.translator.cache import GLOBAL_CACHE
@@ -17,9 +18,45 @@ from pdf_engine.placeholder.batching import make_batches, render_prev_context, b
 from .providers_cloud import (
     KeyEntry, call_llm, parse_model_json, reconcile_translations,
     is_rate_limit_error, is_auth_error, is_quota_exhaustion, is_permanent_exhaustion,
-    is_model_not_found, extract_retry_delay, _is_context_or_400_error,
+    is_model_not_found, is_server_overload, extract_retry_delay, _is_context_or_400_error,
 )
+from .ratelimit import GLOBAL_LEDGER
 from .providers_local import ensure_local_runtime, local_presets_for
+
+
+class _Heartbeat:
+    """
+    API 응답을 기다리는 동안 일정 간격으로 '아직 진행 중'임을 로그로 알린다.
+
+    RPD(일일 요청 수) 한도를 아끼려고 배치를 일부러 크게 잡은 Gemini 모델은 응답에
+    수십 초~몇 분이 걸릴 수 있는데, 그동안 로그가 한 줄도 안 나오면 멈춘 것처럼
+    보인다(실제로 사용자가 겪은 "진행바가 갑자기 확 오른다" 체감의 큰 원인 - 로그가
+    조용한 동안에는 진행바도 그대로였다가, 응답이 오는 순간에만 한 번에 갱신됨).
+    실제 API 호출은 여전히 동기 호출이라 응답 내용 자체를 중간에 알 방법은 없지만,
+    '아직 기다리는 중'이라는 사실만 주기적으로 보여줘도 체감 대기가 크게 줄어든다.
+    스레드 하나만 쓰고 응답이 오는 즉시 멈추므로 실제 처리 성능에는 영향이 없다
+    (교체 비용은 무시할 수준 - time.sleep 대기만 하는 데몬 스레드 하나).
+    """
+    def __init__(self, message_fn, interval: float = 12.0):
+        self._message_fn = message_fn
+        self._interval = interval
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def _run(self):
+        while not self._stop.wait(self._interval):
+            get_logger().log(self._message_fn())
+
+    def __enter__(self):
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc):
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=0.2)
+        return False
 
 def translate_local_chunked(entry: "KeyEntry", args, system_prompt_local: str,
                             template: str, glossary_text: str, prev_context: str,
@@ -116,54 +153,150 @@ def translate_all_batches(pool: list["KeyEntry"], args, system_prompt: str, temp
     key_idx = 0  # 배치 간에도 유지
     local_started = {"done": False, "presets": None}  # 로컬 서버를 아직 안 깨웠으면 done=False
 
-    def next_alive_index(start: int) -> int | None:
+    # ------------------------------------------------------------------
+    # 분산 정책
+    #   balanced(기본): 상위 spread개 모델을 '동급'으로 보고 키·모델에 고르게 나눠 쓴다.
+    #   quality:        예전처럼 1순위 모델만 쓰고, 막히면 그때 아래로 내려간다.
+    # 무료 티어의 한도(RPM/RPD)는 모델별·키별로 따로 세므로, 고르게 나눠 쓰면
+    # 같은 시간에 쓸 수 있는 요청 수가 (키 수 × 모델 수)배로 늘어난다.
+    # ------------------------------------------------------------------
+    balance_mode = str(getattr(args, "api_balance", "balanced") or "balanced").lower()
+    if balance_mode not in ("balanced", "quality"):
+        balance_mode = "balanced"
+    spread = max(1, int(getattr(args, "api_spread", 4) or 4))
+    overload_cooldown = float(getattr(args, "api_overload_cooldown", 45.0) or 45.0)
+    cloud_paths = sum(1 for e in pool if not e.is_local)
+    ignore_ledger = {"on": False}  # 장부상 전부 소진이면 장부를 무시하고라도 시도한다
+    if cloud_paths > 1:
+        if balance_mode == "balanced":
+            top = sorted({e.priority for e in pool if not e.is_local})[:spread]
+            n_top = sum(1 for e in pool if not e.is_local and e.priority in top)
+            get_logger().log(f"  [분산] balanced 모드: 상위 {len(top)}개 모델 × 키 = {n_top}개 경로를 "
+                             f"고르게 사용 (오늘 덜 쓴 모델부터). 나머지는 예비로 대기")
+        else:
+            get_logger().log("  [분산] quality 모드: 1순위 모델을 우선 사용하고 막힐 때만 하위 모델로 전환")
+
+    def _group(e: "KeyEntry") -> int:
+        """같은 그룹 안에서는 서로 동급으로 보고 고르게 나눠 쓴다."""
+        return e.priority if balance_mode == "quality" else e.priority // spread
+
+    def _daily_left(e: "KeyEntry") -> int | None:
+        if not e.rpd_limit:
+            return None
+        return e.rpd_limit - GLOBAL_LEDGER.used_today(e.key_id, e.model)
+
+    def _pick_cloud(cloud: list[int]) -> tuple[int | None, float]:
         """
-        살아있는 키 중 다음 것을 고른다. 선택 규칙:
+        클라우드 후보 중 하나를 고른다. 반환: (인덱스, 인덱스가 없을 때 기다리면 되는 초).
+
+        고르는 기준(앞에서부터 우선):
+          그룹 -> 오늘 사용 비율(4단계) -> 이번 실행 사용 횟수 -> 그 키의 총 사용 횟수
+          -> 모델 순위 -> 마지막 사용 시각(LRU)
+        '오늘 사용 비율'을 먼저 보기 때문에, 어제/오늘 이미 많이 쓴 모델은 자동으로
+        뒤로 밀리고 손대지 않은 모델부터 쓰인다.
+        """
+        key_calls: dict[str, int] = {}
+        for e in pool:
+            if not e.is_local:
+                key_calls[e.key_id] = key_calls.get(e.key_id, 0) + e.calls
+
+        usable: list[int] = []
+        waiting: list[tuple[float, int]] = []
+        over_quota: list[int] = []
+        for i in cloud:
+            e = pool[i]
+            left = _daily_left(e)
+            if left is not None and left <= 0 and not ignore_ledger["on"]:
+                over_quota.append(i)
+                continue
+            w = GLOBAL_LEDGER.rpm_wait(e.key_id, e.model, e.rpm_limit)
+            if w <= 0:
+                usable.append(i)
+            else:
+                waiting.append((w, i))
+
+        if not usable and not waiting and over_quota:
+            # 장부가 실제와 다를 수 있다(유료 티어로 올렸거나, 다른 기기에서 쓴 기록 등).
+            # 쓸 수 있는 게 정말 하나도 없으면 장부를 무시하고 일단 보내 본다 -
+            # 진짜 소진이면 429가 오고 그때 정식으로 처리된다.
+            ignore_ledger["on"] = True
+            get_logger().log("  [분산] 장부상 모든 모델이 오늘 한도 소진 -> 장부를 무시하고 실제로 시도해 봅니다")
+            return _pick_cloud(cloud)
+        if not usable:
+            return None, (min(w for w, _ in waiting) if waiting else 0.0)
+
+        def _score(i: int):
+            e = pool[i]
+            load = 0
+            if e.rpd_limit:
+                load = int(4 * GLOBAL_LEDGER.used_today(e.key_id, e.model) / e.rpd_limit)
+            return (_group(e), load, e.calls, key_calls.get(e.key_id, 0), e.priority, e.last_used)
+
+        return min(usable, key=_score), 0.0
+
+    def _sleep_until(end: float) -> bool:
+        """중단 요청이 오면 즉시 False."""
+        while time.monotonic() < end:
+            if STOP_EVENT.is_set():
+                return False
+            time.sleep(min(1.0, max(end - time.monotonic(), 0.05)))
+        return True
+
+    def next_alive_index(start: int = 0) -> int | None:
+        """
+        다음에 사용할 항목을 고른다. 선택 규칙:
           1) 클라우드를 항상 로컬보다 우선 (로컬 NPU는 클라우드가 전부 죽은 최후의 폴백)
-          2) 클라우드 안에서는 priority가 낮은(=우선순위 높은) 것부터.
-             priority는 같은 키의 모델 폴백 체인에서의 모델 순위다 - 품질이 좋은 1순위
-             모델을 계속 쓰다가, 그 모델이 한도(RPM/RPD)에 걸려 쿨다운되면 자연스럽게
-             2순위 모델로 내려간다. Gemini는 한도가 모델별로 독립이라 이 전환만으로
-             키 하나의 하루 처리량이 몇 배가 된다.
-          3) 같은 priority가 여러 개면(=키를 여러 개 넣은 경우) 기존처럼 라운드로빈으로
-             부하를 분산한다.
+          2) 클라우드 안에서는 _pick_cloud의 기준(그룹 -> 오늘 사용량 -> 이번 실행
+             사용량 -> 키 부하 -> 모델 순위 -> LRU)으로 고른다.
+
+             예전에는 '살아있는 것 중 priority가 가장 낮은(=1순위) 항목'을 무조건 골랐다.
+             그래서 1순위 모델이 죽지 않는 한 2순위 이하는 영영 안 쓰였고, 게다가 start를
+             자기 자신으로 넘겨받아 같은 항목을 계속 재사용했다(끈적한 선택). 실제 로그에서
+             gemini-3.7-flash만 두 키 모두 한도 근처(12/20, 11/20)까지 쓰이고 나머지 7개
+             모델은 0~5/20으로 남아 있던 것이 이 조합 때문이다.
+          3) RPM/RPD는 429를 맞고 대응하는 대신 장부로 미리 피한다. 분당 한도가 찬
+             항목은 후보에서 잠시 빼고, 오늘 한도를 다 쓴 항목은 아예 제외한다.
         쿨다운/할당량 소진으로 죽었던 항목은 revive_at(서버가 알려준 리셋 시각)이 지나면
         자동 부활한다 -> 하위 모델이나 로컬 NPU로 작업 중이어도 1순위 모델이 풀리면 복귀.
         """
-        now = time.monotonic()
-        for e2 in pool:
-            if not e2.alive and e2.revive_at is not None and now >= e2.revive_at:
-                e2.alive = True
-                e2.revive_at = None
-                get_logger().log(f"  [복귀] {e2.label} 대기 시간 경과 -> 다시 사용 대상으로 복귀")
-        cloud = [i for i in range(n_keys) if pool[i].alive and not pool[i].is_local]
-        local = [i for i in range(n_keys) if pool[i].alive and pool[i].is_local]
-        if cloud:
-            best = min(pool[i].priority for i in cloud)
-            cloud = [i for i in cloud if pool[i].priority == best]
-            # start 이상에서 첫 후보, 없으면 처음부터 (같은 순위끼리 라운드로빈)
-            for i in range(start, start + n_keys):
-                j = i % n_keys
-                if j in cloud:
-                    return j
-            return cloud[0]
-        # 클라우드가 전부 '잠깐' 쿨다운(분당 한도 등) 중일 뿐이라면, 느린 로컬 NPU로
-        # 내려가지 말고 그 짧은 시간만 기다렸다가 클라우드로 계속 간다. 1분 기다리는 편이
-        # 로컬 소형 모델로 배치를 도는 것보다 대개 더 빠르고 품질도 좋다.
-        cloud_soon = [e2.revive_at for e2 in pool
-                      if not e2.alive and not e2.is_local and e2.revive_at is not None]
-        if cloud_soon:
-            wait = min(cloud_soon) - now
-            if 0 < wait <= 90:
-                get_logger().log(f"  [대기] 모든 클라우드 모델이 분당 한도 - {wait:.0f}초 후 복귀 예정이라 "
-                                 f"대기합니다 (로컬 폴백보다 빠름)")
-                end = time.monotonic() + wait
-                while time.monotonic() < end:
-                    if STOP_EVENT.is_set():
+        for _ in range(64):  # 안전장치: '대기 후 재평가'를 무한히 반복하지 않는다
+            now = time.monotonic()
+            for e2 in pool:
+                if not e2.alive and e2.revive_at is not None and now >= e2.revive_at:
+                    e2.alive = True
+                    e2.revive_at = None
+                    get_logger().log(f"  [복귀] {e2.label} 대기 시간 경과 -> 다시 사용 대상으로 복귀")
+            cloud = [i for i in range(n_keys) if pool[i].alive and not pool[i].is_local]
+            local = [i for i in range(n_keys) if pool[i].alive and pool[i].is_local]
+            if cloud:
+                idx, wait = _pick_cloud(cloud)
+                if idx is not None:
+                    return idx
+                if wait > 0:
+                    # 분당 한도(RPM)가 찼을 뿐이다. 로컬로 내려가는 것보다 몇십 초 기다렸다
+                    # 클라우드로 계속 가는 편이 대개 더 빠르고 품질도 좋다.
+                    if wait <= 75 or not local:
+                        get_logger().log(f"  [대기] 모든 클라우드 모델이 분당 한도(RPM)에 도달 "
+                                         f"-> {wait:.0f}초 후 재개 "
+                                         f"(유료 티어라 한도가 더 높다면 --api-rpm 으로 조정)")
+                        if not _sleep_until(time.monotonic() + wait):
+                            return None
+                        continue
+            # 클라우드가 전부 '잠깐' 쿨다운(429/과부하 등) 중일 뿐이라면, 느린 로컬 NPU로
+            # 내려가지 말고 그 짧은 시간만 기다렸다가 클라우드로 계속 간다.
+            cloud_soon = [e2.revive_at for e2 in pool
+                          if not e2.alive and not e2.is_local and e2.revive_at is not None]
+            if not cloud and cloud_soon:
+                wait = min(cloud_soon) - time.monotonic()
+                if 0 < wait <= 90:
+                    get_logger().log(f"  [대기] 모든 클라우드 모델이 쿨다운 중 - {wait:.0f}초 후 복귀 예정이라 "
+                                     f"대기합니다 (로컬 폴백보다 빠름)")
+                    if not _sleep_until(time.monotonic() + wait):
                         return None
-                    time.sleep(min(1.0, max(end - time.monotonic(), 0.05)))
-                return next_alive_index(start)
+                    continue
+            break
 
+        local = [i for i in range(n_keys) if pool[i].alive and pool[i].is_local]
         # 클라우드가 전부 죽음 -> 로컬 사용 (필요 시 서버 기동)
         if local:
             if not local_started["done"]:
@@ -216,6 +349,29 @@ def translate_all_batches(pool: list["KeyEntry"], args, system_prompt: str, temp
     total_pages = len({s.page for s in targets})  # 번역 대상이 있는 페이지 수 (진행 표시용)
     pages_done: set[int] = set()
 
+    def _emit_progress(bi_local: int) -> float:
+        """
+        GUI 진행바/상태 텍스트가 파싱하는 구조화 로그 라인을 찍는다.
+
+        pct는 예전처럼 '배치 번호 / 전체 배치 수'가 아니라 '실제로 처리(번역 성공 또는
+        원문 유지로 확정)된 세그먼트 수 / 전체 대상 세그먼트 수'로 계산한다. RPD(일일
+        요청 수)를 아끼려고 배치를 일부러 크게 잡은 모델(예: Gemini 표준 Flash)에서는
+        배치 하나의 세그먼트 수가 서로 크게 달라서, 배치 번호 기준 pct는 "배치 4개 중
+        1개 끝났으니 25%"처럼 실제 작업량과 안 맞는 계단식으로 튀었다. 세그먼트 수
+        기준으로 바꾸면 배치 크기와 무관하게 진행률이 실제 작업량에 비례해서 매끄럽게
+        올라간다. 또한 이 함수를 배치 하나가 끝날 때뿐 아니라 재요청(누락분 재시도) 등
+        배치 도중에도 호출해, 배치 하나가 여러 번 요청을 거치는 동안에도 진행바가
+        중간중간 갱신되게 한다(예전엔 배치가 끝나야만 갱신됨 -> 크고 오래 걸리는
+        배치일수록 진행바가 오래 멈춰 있다가 한 번에 확 올라가는 것처럼 보였다).
+        """
+        resolved = sum(1 for s in targets if s.translated is not None)
+        pct = 100.0 * resolved / max(len(targets), 1)
+        get_logger().log(f"  [진행] batch={bi_local}/{len(batches)} segs={resolved}/{len(targets)} "
+              f"pages={len(pages_done)}/{total_pages} pct={pct:.1f}")
+        if pbar_callback is not None:
+            pbar_callback(bi_local, len(batches), pct)
+        return pct
+
     for bi, batch in enumerate(batches, 1):
         if STOP_EVENT.is_set():
             stopped_by_user = True
@@ -225,13 +381,27 @@ def translate_all_batches(pool: list["KeyEntry"], args, system_prompt: str, temp
         remaining = {s.seg_id: s for s in batch}
         attempt = 0
         rl_retry = 0
+        overload_retry = 0
         keys_tried_since_success = 0
         no_progress = 0  # 성공 응답인데 remaining이 줄지 않은 연속 횟수 (모델의 세그먼트 누락 반복 감지)
+        batch_t0 = time.monotonic()
+        # 하드 실패 허용 횟수: 예전엔 max_attempts(기본 3)를 배치 전체가 공유해서, 서로
+        # 다른 모델로 3번 실패하면 남은 모델을 하나도 안 써 보고 배치를 통째로 포기했다
+        # (실제 로그의 batch 3: 25개 세그먼트가 그대로 원문 유지). 이제는 최소한 살아있는
+        # 경로 수(최대 8개)만큼은 서로 다른 모델로 시도해 본다.
+        attempt_cap = max(int(getattr(args, "max_attempts", 3) or 3), min(cloud_paths, 8))
+        # 다만 무한정 끌 수는 없으므로 배치당 시간 상한도 둔다 (타임아웃 × 4, 최소 10분).
+        batch_time_budget = max(600.0, float(getattr(args, "api_timeout", 180.0) or 180.0) * 4)
         while remaining:
             if STOP_EVENT.is_set():
                 stopped_by_user = True
                 get_logger().log(f"  [중단] 사용자 요청 -> 현재 배치의 남은 {len(remaining)}개 세그먼트는 "
                       f"원문 유지하고 저장 진행")
+                break
+            if time.monotonic() - batch_t0 > batch_time_budget:
+                get_logger().log(f"  [batch {bi}/{len(batches)}] 이 배치에 "
+                      f"{batch_time_budget/60:.0f}분 이상 소요 -> 남은 {len(remaining)}개는 "
+                      f"원문 유지하고 다음 배치로")
                 break
             idx = next_alive_index(key_idx)
             if idx is None:
@@ -244,6 +414,7 @@ def translate_all_batches(pool: list["KeyEntry"], args, system_prompt: str, temp
             entry = pool[key_idx]
 
             todo = list(remaining.values())
+            todo_chars = sum(len(s.text) for s in todo)
             prompt = build_user_prompt(template, args, glossary_text,
                                        render_prev_context(prev_pairs), todo)
 
@@ -252,10 +423,26 @@ def translate_all_batches(pool: list["KeyEntry"], args, system_prompt: str, temp
                 if wait > 0:
                     time.sleep(wait)
 
+            # 요청을 보내는 시점에 바로 로그를 남긴다 - 응답이 몇십 초~몇 분 걸려도
+            # "지금 뭘 하고 있는지"가 화면에 즉시 보이게 하기 위함 (예전엔 성공/실패
+            # 결과가 나온 뒤에야 로그가 찍혀서, 그 사이엔 화면이 그대로 멈춰 보였다).
+            req_t0 = time.monotonic()
+            # 사용량 장부에 '보냈다'는 사실을 먼저 남긴다 - 분당 한도(RPM) 계산은 응답
+            # 성공 여부와 무관하게 요청 시점 기준이기 때문이다. 일일 한도(RPD)는 서버가
+            # 실제로 처리해 준 요청만 세야 하므로 성공했을 때만 올린다.
+            entry.calls += 1
+            entry.last_used = time.monotonic()
+            if not entry.is_local:
+                GLOBAL_LEDGER.note_request(entry.key_id, entry.model)
+            get_logger().log(f"  [batch {bi}/{len(batches)}] {entry.label}로 {len(todo)}개 세그먼트 "
+                  f"({todo_chars:,}자) 요청 전송...")
+
             try:
                 if entry.is_local:
                     # 로컬 NPU: 양자화 프리셋에 맞춰 작은 청크로 나눠 처리
-                    # (소형 모델 컨텍스트/품질 한계 -> 실패 파장 축소)
+                    # (소형 모델 컨텍스트/품질 한계 -> 실패 파장 축소, 청크마다 이미
+                    # translate_local_chunked 내부에서 진행 로그를 찍으므로 별도 하트비트는
+                    # 불필요하다)
                     presets = local_started["presets"] or local_presets_for(entry.model)
                     mapping, given_up = translate_local_chunked(
                         entry, args, system_prompt_local, template, glossary_text,
@@ -268,15 +455,54 @@ def translate_all_batches(pool: list["KeyEntry"], args, system_prompt: str, temp
                             remaining[sid].translation_failed = True
                             del remaining[sid]
                 else:
-                    raw = call_llm(entry.provider, entry.client, entry.model,
-                                  system_prompt, prompt,
-                                  args.max_tokens, args.temperature)
+                    # 클라우드 호출은 배치가 크면(RPD를 아끼려 일부러 크게 잡은 Gemini
+                    # 모델 등) 응답에 분 단위가 걸릴 수 있다 - 하트비트로 "아직 대기
+                    # 중"임을 주기적으로 알려 화면이 멈춘 것처럼 보이지 않게 한다.
+                    with _Heartbeat(lambda: f"  [batch {bi}/{len(batches)}] {entry.label} "
+                                     f"응답 대기 중... ({time.monotonic() - req_t0:.0f}초 경과)"):
+                        raw = call_llm(entry.provider, entry.client, entry.model,
+                                      system_prompt, prompt,
+                                      args.max_tokens, args.temperature)
                     mapping = reconcile_translations(parse_model_json(raw), todo,
                                                      getattr(args, "target_lang", ""))
+                    GLOBAL_LEDGER.note_success(entry.key_id, entry.model)
+                    left = _daily_left(entry)
+                    get_logger().log(f"  [batch {bi}/{len(batches)}] {entry.label} 응답 수신 "
+                          f"({time.monotonic() - req_t0:.1f}초) -> {len(mapping)}/{len(todo)}개 세그먼트 번역됨"
+                          + (f" (오늘 남은 요청 {max(left, 0)}회)" if left is not None else ""))
                 last_call_time = time.monotonic()
                 keys_tried_since_success = 0
+                overload_retry = 0
             except Exception as e:
                 last_call_time = time.monotonic()
+                if (not entry.is_local and is_server_overload(e)
+                        and not is_rate_limit_error(e) and not is_model_not_found(e)):
+                    # is_model_not_found를 먼저 걸러낸다: "이 모델은 이 지역에서 unavailable"
+                    # 같은 문구는 과부하 키워드에 걸리지만 실제로는 아무리 기다려도 안 풀린다.
+                    # 503/500 등 '모델이 지금 붐빈다'는 오류. 요청이 잘못된 게 아니므로
+                    # 재시도 횟수를 깎지 말고, 그 모델만 넉넉히 쿨다운시켜 다른 모델/키로
+                    # 즉시 내려간다. 예전엔 이것을 일반 오류로 보고 2~15초만 쿨다운시켜서,
+                    # 두 키의 1순위 모델 사이만 왕복하다가 배치를 포기했다.
+                    overload_retry += 1
+                    if overload_retry > max(6, cloud_paths):
+                        get_logger().log(f"  [batch {bi}/{len(batches)}] 과부하(503)가 계속됨 "
+                              f"({overload_retry}회) -> 일반 오류로 처리")
+                    else:
+                        delay = extract_retry_delay(e, default=overload_cooldown)
+                        entry.alive = False
+                        entry.revive_at = time.monotonic() + delay
+                        nxt = next_alive_index(key_idx + 1)
+                        if nxt is None:
+                            aborted = True
+                            abort_page = min(s.page for s in remaining.values()) + 1
+                            get_logger().log(f"  [batch {bi}/{len(batches)}] 모든 모델이 과부하/대기 중 "
+                                  f"-> {abort_page}페이지부터 번역 중단, 원문 유지")
+                            break
+                        get_logger().log(f"  [batch {bi}/{len(batches)}] {entry.label} 서버 과부하(503) "
+                              f"-> {delay:.0f}초 쉬게 하고 {pool[nxt].label}(으)로 전환 "
+                              f"(재시도 횟수 소모 안 함)")
+                        key_idx = nxt
+                        continue
                 if not entry.is_local and is_model_not_found(e):
                     # 이 계정에 없는 모델(체인에 섞인 미지원 모델) -> 그 모델만 빼고 다음 순위로
                     entry.alive = False
@@ -312,6 +538,11 @@ def translate_all_batches(pool: list["KeyEntry"], args, system_prompt: str, temp
                         # 할당량 소진: 서버 제시 리셋 시간(없으면 30분) 후 자동 부활 예약
                         delay = extract_retry_delay(e, default=1800.0)
                         entry.revive_at = time.monotonic() + delay
+                        if not entry.is_local and is_quota_exhaustion(e):
+                            # 장부를 실제 상태에 맞춰 올려 둔다 -> 다음 실행에서 이 모델을
+                            # 다시 1번 타자로 세우지 않는다(오늘 안에 재실행할 때 특히 중요).
+                            GLOBAL_LEDGER.mark_daily_exhausted(entry.key_id, entry.model,
+                                                               entry.rpd_limit)
                         get_logger().log(f"  [batch {bi}/{len(batches)}] 키 {entry.label} 할당량 소진 "
                               f"-> {delay/60:.0f}분 후 자동 재시도 예약 (그동안 다른 키/NPU 사용)")
                     nxt = next_alive_index(key_idx + 1)
@@ -351,9 +582,11 @@ def translate_all_batches(pool: list["KeyEntry"], args, system_prompt: str, temp
                     keys_tried_since_success += 1
                     continue
                 attempt += 1
-                get_logger().log(f"  [batch {bi}/{len(batches)}] 시도 {attempt}/{args.max_attempts} "
+                get_logger().log(f"  [batch {bi}/{len(batches)}] 시도 {attempt}/{attempt_cap} "
                       f"({entry.label}) 실패: {e}")
-                if attempt >= args.max_attempts:
+                if attempt >= attempt_cap:
+                    get_logger().log(f"  [batch {bi}/{len(batches)}] 서로 다른 모델로 {attempt}번 실패 "
+                          f"-> 남은 {len(remaining)}개는 원문 유지하고 다음 배치로")
                     break
                 # 이 항목을 짧게 쿨다운시켜 실제로 '다음 순위' 모델로 넘어가게 한다.
                 #
@@ -406,6 +639,9 @@ def translate_all_batches(pool: list["KeyEntry"], args, system_prompt: str, temp
                 else:
                     no_progress = 0
                 get_logger().log(f"  [batch {bi}/{len(batches)}] 누락 {len(remaining)}개 세그먼트 재요청")
+                # 배치가 여러 요청 라운드를 거치는 동안에도(누락분 재요청 등) 진행바를
+                # 그때그때 갱신 - 배치 하나가 끝날 때까지 기다리지 않는다.
+                _emit_progress(bi)
 
         # 이 배치에서 끝까지 실패/중단된 분은 원문 유지 (문서 손실 방지)
         for s in remaining.values():
@@ -419,12 +655,7 @@ def translate_all_batches(pool: list["KeyEntry"], args, system_prompt: str, temp
         total_chars_sent += sum(len(s.text) for s in batch)
         done = sum(1 for s in targets if s.translated is not None and s.translated != s.text)
         get_logger().log(f"  [batch {bi}/{len(batches)}] 완료 (실제 번역 누적 {done}/{len(targets)} 세그먼트)")
-        # GUI 진행 표시용 구조화 라인 (사람도 읽을 수 있는 형식)
-        pct = 100.0 * bi / max(len(batches), 1)
-        get_logger().log(f"  [진행] batch={bi}/{len(batches)} pages={len(pages_done)}/{total_pages} "
-              f"pct={pct:.1f}")
-        if pbar_callback is not None:
-            pbar_callback(bi, len(batches), pct)
+        _emit_progress(bi)
 
         if aborted:
             break
@@ -434,6 +665,18 @@ def translate_all_batches(pool: list["KeyEntry"], args, system_prompt: str, temp
         if s.translated is None:
             s.translated = s.text
             s.translation_failed = True
+
+    # 어떤 키/모델을 몇 번 썼는지 요약 - 분산이 실제로 되고 있는지 한눈에 확인용
+    used_entries = [e for e in pool if e.calls]
+    if used_entries:
+        get_logger().log("  [사용량] 이번 실행 요청 분포")
+        for e in sorted(used_entries, key=lambda x: (-x.calls, x.label)):
+            quota = ""
+            if not e.is_local and e.rpd_limit:
+                quota = (f" / 오늘 누적 {GLOBAL_LEDGER.used_today(e.key_id, e.model)}"
+                         f"/{e.rpd_limit}회")
+            get_logger().log(f"       - {e.label}: {e.calls}회{quota}")
+        GLOBAL_LEDGER.save()
 
     if stopped_by_user:
         status_word = "사용자 중단(진행분까지 저장)"

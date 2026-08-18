@@ -1,0 +1,39 @@
+PDF AI 번역기 — 사용 조건
+Creative Commons 저작자표시-비영리 4.0 국제 (CC BY-NC 4.0)
+
+======================================================================
+ 이 소프트웨어의 상업적 이용은 금지되어 있습니다.
+ COMMERCIAL USE OF THIS SOFTWARE IS STRICTLY PROHIBITED.
+======================================================================
+
+허용되는 것
+  공유 — 어떤 매체나 형식으로든 복제 및 재배포
+  변경 — 리믹스, 변형, 2차적 저작물 작성
+
+지켜야 할 조건
+  저작자표시 — 적절한 출처를 밝히고, 라이선스 링크를 제공하며,
+               변경이 있었다면 그 사실을 표시해야 합니다.
+  비영리     — 이 자료를 상업적 목적으로 이용할 수 없습니다.
+
+전체 라이선스 원문은 프로그램 설치 폴더가 아니라 리포지토리의
+LICENSE.md 파일과 아래 주소에서 확인할 수 있습니다.
+  https://creativecommons.org/licenses/by-nc/4.0/legalcode.ko
+
+----------------------------------------------------------------------
+함께 설치되는 타사 구성 요소
+----------------------------------------------------------------------
+이 설치 프로그램은 아래 구성 요소를 (사용자가 선택한 경우) 내려받아
+설치합니다. 각각은 별도의 라이선스를 따르며, 이 프로그램의 라이선스가
+적용되지 않습니다.
+
+  · Tesseract OCR                      Apache License 2.0
+    https://github.com/tesseract-ocr/tesseract
+  · Tesseract 언어 데이터(traineddata)  Apache License 2.0
+    https://github.com/tesseract-ocr/tessdata
+  · Microsoft Visual C++ 재배포 패키지  Microsoft 재배포 조건
+    https://aka.ms/vs/17/release/vc_redist.x64.exe
+  · Lemonade Server (선택)              해당 프로젝트 라이선스
+    https://github.com/lemonade-sdk/lemonade
+
+전체 고지문은 설치 후 <설치폴더>\licenses 폴더에 있습니다
+(오프라인 설치 프로그램에만 포함됩니다).

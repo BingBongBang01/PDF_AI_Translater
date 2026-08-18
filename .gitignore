@@ -6,3 +6,9 @@
 **/*secret*
 **/*token*
 **/*credentials*
+
+# Installer build artifacts and staged third-party redistributables.
+# redist/ holds vendor installers (VC++ redist, Tesseract) used only by the
+# offline Setup variant - large binaries that must not enter git history.
+Version/**/installer/redist/
+Version/**/installer/Output/

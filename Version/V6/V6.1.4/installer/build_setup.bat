@@ -77,20 +77,42 @@ if not exist "%APP_EXE%" (
 for %%F in ("%APP_EXE%") do echo   Found: %%~nxF (%%~zF bytes)
 
 echo.
-echo [5/6] Compute SHA-256 of the application EXE...
-REM The web installer pins this hash so a tampered or truncated download is rejected.
-set "APPEXE_SHA256="
-for /f "skip=1 delims=" %%H in ('certutil -hashfile "%APP_EXE%" SHA256') do (
-    if not defined APPEXE_SHA256 set "APPEXE_SHA256=%%H"
+echo [5/6] Determine SHA-256 of the published application EXE...
+REM The web installer pins this hash and rejects a download that does not match.
+REM
+REM IMPORTANT: the hash must belong to the EXE that is ATTACHED TO THE RELEASE,
+REM not to a fresh local rebuild. PyInstaller output is not reproducible, so
+REM rebuilding produces a different hash and the web installer would then reject
+REM the (perfectly good) file it downloads. Correct order of operations:
+REM     build_exe.bat  ->  upload dist\*.exe to the release  ->  build_setup.bat
+REM without rebuilding in between.
+REM
+REM To pin a hash you already know (e.g. read from the GitHub release asset's
+REM digest field), set it before calling this script:
+REM     set APPEXE_SHA256=bb14d0...   &&  build_setup.bat
+if defined APPEXE_SHA256 (
+    echo   Using SHA-256 supplied via environment.
+) else (
+    for /f "skip=1 delims=" %%H in ('certutil -hashfile "%APP_EXE%" SHA256') do (
+        if not defined APPEXE_SHA256 set "APPEXE_SHA256=%%H"
+    )
+    REM Older certutil builds group the hash in space-separated pairs - strip them.
+    set "APPEXE_SHA256=!APPEXE_SHA256: =!"
+    echo   Computed from the local build. Upload THIS exact file to the release.
 )
-REM Older certutil builds group the hash in space-separated pairs - strip them.
-set "APPEXE_SHA256=%APPEXE_SHA256: =%"
-echo %APPEXE_SHA256% | findstr /r "^[0-9a-fA-F][0-9a-fA-F]*$" >nul
+echo !APPEXE_SHA256! | findstr /r "^[0-9a-fA-F][0-9a-fA-F]*$" >nul
 if errorlevel 1 (
-    echo [ERROR] Unexpected certutil output; got "%APPEXE_SHA256%"
+    echo [ERROR] Not a valid SHA-256; got "!APPEXE_SHA256!"
     goto :error
 )
-echo   SHA-256: %APPEXE_SHA256%
+echo   SHA-256: !APPEXE_SHA256!
+
+REM Tag of the release that hosts the application EXE. Defaults to the value
+REM baked into setup.iss ("Release"); override for a version-specific tag:
+REM     set RELEASE_TAG=v6.1.4   &&  build_setup.bat
+set "TAG_OPT="
+if defined RELEASE_TAG set "TAG_OPT=/DReleaseTag=%RELEASE_TAG%"
+if defined RELEASE_TAG echo   Release tag override: %RELEASE_TAG%
 
 echo.
 echo [6/6] Compile installers...
@@ -106,7 +128,7 @@ if defined UNPINNED (
 if not exist "Output" mkdir "Output"
 
 echo   -^> web installer
-"%ISCC%" /Q "/DAppVersion=%APP_VERSION%" "/DAppExeSha256=%APPEXE_SHA256%" setup.iss
+"%ISCC%" /Q %TAG_OPT% "/DAppVersion=%APP_VERSION%" "/DAppExeSha256=!APPEXE_SHA256!" setup.iss
 if errorlevel 1 goto :error
 
 REM The offline variant is only built when the redistributables have been staged.
@@ -123,7 +145,7 @@ if not exist "redist\vc_redist.x64.exe" (
     echo   -^> offline installer SKIPPED ^(redist\tesseract-ocr-w64-setup-*.exe not staged^)
 ) else (
     echo   -^> offline installer ^(bundling !TESS_SETUP!^)
-    "%ISCC%" /Q /DOFFLINE "/DAppVersion=%APP_VERSION%" "/DAppExeSha256=%APPEXE_SHA256%" setup.iss
+    "%ISCC%" /Q /DOFFLINE %TAG_OPT% "/DAppVersion=%APP_VERSION%" "/DAppExeSha256=!APPEXE_SHA256!" setup.iss
     if errorlevel 1 goto :error
 )
 

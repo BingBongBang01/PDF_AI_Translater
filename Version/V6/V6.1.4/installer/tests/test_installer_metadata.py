@@ -91,6 +91,19 @@ def test_every_referenced_define_is_defined():
     assert not undefined, f"정의되지 않은 #define 참조: {undefined}"
 
 
+def test_app_exe_url_uses_release_tag():
+    """앱 EXE 다운로드 주소는 버전이 아니라 '실제 릴리스 태그'로 만들어야 한다.
+
+    이 저장소의 V6.1.4 릴리스는 태그 이름이 'Release' 라서, 주소를
+    ".../download/v" + AppVersion 으로 만들면 404 가 난다.
+    """
+    text = read(SETUP_ISS)
+    assert "#define ReleaseTag" in text, "ReleaseTag 기본값이 없습니다"
+    assert '"/releases/download/" + ReleaseTag + "/"' in text, \
+        "AppExeUrl 이 ReleaseTag 로 만들어지지 않습니다"
+    assert '"/releases/download/v" + AppVersion' not in text
+
+
 def test_app_id_is_set():
     m = re.search(r"^AppId=\{\{([0-9A-Fa-f-]+)\}", read(SETUP_ISS), re.MULTILINE)
     assert m, "AppId 가 없습니다. 업그레이드/제거 식별에 반드시 필요합니다."

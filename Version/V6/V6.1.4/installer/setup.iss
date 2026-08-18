@@ -32,7 +32,13 @@
 #define AppPublisher   "BingBongBang01"
 #define AppUrl         "https://github.com/BingBongBang01/PDF_AI_Translater"
 #define AppExeName     "PDF-Translater-v" + AppVersion + ".exe"
-#define AppExeUrl      AppUrl + "/releases/download/v" + AppVersion + "/" + AppExeName
+; 앱 EXE 가 실제로 올라가 있는 릴리스의 "태그 이름". 버전 문자열과 다를 수 있다
+; (현재 저장소의 V6.1.4 릴리스는 태그가 'Release' 다).
+; 버전별 태그로 옮기면 빌드할 때 /DReleaseTag=v6.1.4 로 덮어쓰면 된다.
+#ifndef ReleaseTag
+  #define ReleaseTag "Release"
+#endif
+#define AppExeUrl      AppUrl + "/releases/download/" + ReleaseTag + "/" + AppExeName
 
 [Setup]
 ; AppId 는 업그레이드/제거 식별자다. 버전이 올라가도 절대 바꾸지 말 것.

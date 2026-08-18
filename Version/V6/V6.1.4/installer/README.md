@@ -56,12 +56,46 @@ curl -L -o redist\tesseract-ocr-w64-setup-5.5.0.20241111.exe ^
   https://digi.bib.uni-mannheim.de/tesseract/tesseract-ocr-w64-setup-5.5.0.20241111.exe
 ```
 
-### web 변형의 전제
+### web 변형의 전제 — 순서를 지켜야 한다
 
-앱 EXE를 GitHub Release로 올려야 한다. 설치기가 받는 주소는
-`.../releases/download/v<ver>/PDF-Translater-v<ver>.exe`이므로 **릴리스를 먼저 만들고
-그다음 web 설치기를 빌드**하는 순서가 된다. 앱 EXE의 SHA-256은 빌드 시점에 계산해
-설치기에 박아 넣으므로, 변조되거나 잘린 다운로드는 거부된다.
+web 설치기는 앱 EXE를 GitHub Release에서 받는다. 받는 주소는
+
+```
+https://github.com/BingBongBang01/PDF_AI_Translater/releases/download/<ReleaseTag>/PDF-Translater-v<ver>.exe
+```
+
+**`<ReleaseTag>`는 버전 문자열이 아니라 실제 태그 이름이다.** 현재 저장소의 V6.1.4
+릴리스는 태그가 `Release`라서 `setup.iss`의 기본값도 `Release`로 두었다. 버전별 태그로
+옮기면 빌드할 때 덮어쓴다:
+
+```bat
+set RELEASE_TAG=v6.1.4
+build_setup.bat
+```
+
+**해시 고정 때문에 순서가 중요하다.** 설치기는 내려받은 EXE의 SHA-256을 고정값과
+대조한다. 그런데 PyInstaller 빌드는 재현되지 않아서, 같은 소스를 다시 빌드해도 해시가
+달라진다. 즉 **릴리스에 올린 그 파일의 해시**를 박아야 하며, 재빌드한 다른 파일의
+해시를 박으면 설치기가 멀쩡한 다운로드를 거부한다. 올바른 순서:
+
+```
+build_exe.bat  →  dist\*.exe 를 릴리스에 업로드  →  (재빌드 없이) build_setup.bat
+```
+
+이미 올라가 있는 파일의 해시를 알고 있다면(릴리스 자산의 `digest` 필드에서 읽을 수
+있다) 계산을 건너뛰고 그대로 쓸 수 있다:
+
+```bat
+set APPEXE_SHA256=<64자리 hex>
+build_setup.bat
+```
+
+참고 — 2026-08-18 기준 `Release` 태그에 올라가 있는 `PDF-Translater-v6.1.4.exe`
+(114,879,209바이트)의 SHA-256:
+
+```
+bb14d07c97a8430050f8653b48d8a5e959f379f7ed340bea32fd2e4b386d639c
+```
 
 ### 다운로드 무결성 — 지금은 일부 꺼져 있다
 
